@@ -1,0 +1,5 @@
+release/*
+bin/*
+.vscode/
+.idea/
+
