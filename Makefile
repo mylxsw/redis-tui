@@ -2,6 +2,9 @@ Version := $(shell date "+%Y%m%d%H%M")
 GitCommit := $(shell git rev-parse HEAD)
 LDFLAGS := "-s -w -X main.Version=$(Version) -X main.GitCommit=$(GitCommit)"
 
+run-dev: build 
+	./bin/redis-gli -h 192.168.1.230
+
 run: build 
 	./bin/redis-gli
 

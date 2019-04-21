@@ -6,7 +6,7 @@ import (
 )
 
 type RedisClient interface {
-	Keys(pattern string) *redis.StringSliceCmd
+	Scan(cursor uint64, match string, count int64) *redis.ScanCmd
 	Type(key string) *redis.StatusCmd
 	TTL(key string) *redis.DurationCmd
 	Get(key string) *redis.StringCmd
@@ -33,6 +33,7 @@ func NewRedisClient(config Config) RedisClient {
 		DB:   config.DB,
 	}
 
-	return redis.NewClient(options)
-}
+	client := redis.NewClient(options)
 
+	return client
+}
