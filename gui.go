@@ -23,11 +23,17 @@ type RedisGli struct {
 	keyItemsPanel *tview.List
 	summaryPanel  *tview.TextView
 	searchPanel   *tview.InputField
+	welcomeScreen tview.Primitive
+
+	commandPanel     *tview.Flex
+	commandFormPanel *tview.InputField
+	commandMode      bool
 
 	leftPanel  *tview.Flex
 	rightPanel *tview.Flex
 
 	layout *tview.Flex
+	pages  *tview.Pages
 	app    *tview.Application
 
 	redisClient RedisClient
@@ -54,6 +60,8 @@ func NewRedisGli(redisClient RedisClient, maxKeyLimit int64, version string, git
 		currentFocusIndex: 0,
 	}
 
+	gli.welcomeScreen = tview.NewTextView().SetTitle("Hello, world!")
+
 	gli.metaPanel = gli.createMetaPanel()
 	gli.mainPanel = gli.createMainPanel()
 	gli.outputPanel = gli.createOutputPanel()
@@ -63,15 +71,15 @@ func NewRedisGli(redisClient RedisClient, maxKeyLimit int64, version string, git
 	gli.itemSelectedHandler = gli.createKeySelectedHandler()
 	gli.searchPanel = gli.createSearchPanel()
 
+	gli.commandPanel = gli.createCommandPanel()
+
 	gli.leftPanel = tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(gli.searchPanel, 3, 0, false).
 		AddItem(gli.keyItemsPanel, 0, 1, false).
 		AddItem(gli.summaryPanel, 3, 1, false)
 
-	gli.rightPanel = tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(gli.metaPanel, 4, 1, false).
-		AddItem(gli.mainPanel, 0, 7, false).
-		AddItem(gli.outputPanel, 5, 1, false)
+	gli.rightPanel = tview.NewFlex().SetDirection(tview.FlexRow)
+	gli.redrawRightPanel(gli.mainPanel)
 
 	gli.app = tview.NewApplication()
 	gli.layout = tview.NewFlex().
@@ -95,6 +103,23 @@ func NewRedisGli(redisClient RedisClient, maxKeyLimit int64, version string, git
 			return nil
 		case tcell.KeyEsc:
 			gli.app.Stop()
+		case tcell.KeyF1:
+			if gli.commandMode {
+				gli.commandMode = false
+				gli.redrawRightPanel(gli.mainPanel)
+				gli.app.SetFocus(gli.searchPanel)
+				gli.currentFocusIndex = 0
+			} else {
+				gli.commandMode = true
+				gli.redrawRightPanel(gli.commandPanel)
+
+				for i, p := range gli.focusPrimitives {
+					if p.Primitive == gli.commandFormPanel {
+						gli.app.SetFocus(gli.commandFormPanel)
+						gli.currentFocusIndex = i
+					}
+				}
+			}
 		default:
 			for i, pv := range gli.focusPrimitives {
 				if pv.Key == event.Key() {
@@ -109,6 +134,17 @@ func NewRedisGli(redisClient RedisClient, maxKeyLimit int64, version string, git
 	})
 
 	return gli
+}
+
+func (gli *RedisGli) redrawRightPanel(center tview.Primitive) {
+	gli.rightPanel.RemoveItem(gli.metaPanel).
+		RemoveItem(gli.outputPanel).
+		RemoveItem(gli.mainPanel).
+		RemoveItem(gli.commandPanel)
+
+	gli.rightPanel.AddItem(gli.metaPanel, 4, 1, false).
+		AddItem(center, 0, 7, false).
+		AddItem(gli.outputPanel, 5, 1, false)
 }
 
 // Start create the ui and start the program
@@ -129,7 +165,10 @@ func (gli *RedisGli) Start() error {
 		gli.app.SetFocus(gli.keyItemsPanel)
 	})
 
-	return gli.app.SetRoot(gli.layout, true).Run()
+	gli.pages = tview.NewPages()
+	gli.pages.AddPage("base", gli.layout, true, true)
+
+	return gli.app.SetRoot(gli.pages, true).Run()
 }
 
 func (gli *RedisGli) createSummaryPanel() *tview.TextView {
@@ -142,10 +181,85 @@ func (gli *RedisGli) keyItemsFormat(index int, key string) string {
 	return fmt.Sprintf("%3d | %s", index+1, key)
 }
 
+func (gli *RedisGli) createCommandPanel() *tview.Flex {
+	flex := tview.NewFlex().SetDirection(tview.FlexRow)
+	// flex.SetBorder(true).SetTitle(" Commands (F1) ").SetBackgroundColor(tcell.Color16)
+
+	resultPanel := tview.NewTextView()
+	resultPanel.SetBorder(true).SetTitle(" Results ")
+
+	formPanel := tview.NewInputField().SetLabel("Command")
+	var locked bool
+	formPanel.SetDoneFunc(func(key tcell.Key) {
+		if key != tcell.KeyEnter {
+			return
+		}
+
+		if locked {
+			pageID := "alert"
+			gli.pages.AddPage(
+				pageID,
+				tview.NewModal().
+					SetText("之前的命令正在处理中，请稍候...").
+					AddButtons([]string{"确定"}).
+					SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+						gli.pages.HidePage(pageID).RemovePage(pageID)
+						gli.app.SetFocus(formPanel)
+					}),
+				false,
+				true,
+			)
+
+			return
+		}
+
+		cmdText := formPanel.GetText()
+		gli.outputFunc(tcell.ColorOrange, fmt.Sprintf("Command %s is processing...", cmdText))
+		locked = true
+
+		go func(cmdText string) {
+			gli.app.QueueUpdateDraw(func() {
+				defer func() {
+					locked = false
+				}()
+
+				res, err := RedisExecute(gli.redisClient, cmdText)
+				if err != nil {
+					gli.outputFunc(tcell.ColorRed, fmt.Sprintf("Errors: %s", err))
+					return
+				}
+
+				resultPanel.SetText(fmt.Sprintf("%v", res))
+				gli.outputFunc(tcell.ColorGreen, fmt.Sprintf("Command %s succeed", cmdText))
+			})
+		}(cmdText)
+
+		formPanel.SetText("")
+	})
+	// formPanel.SetBackgroundColor(tcell.ColorOrange)
+	formPanel.SetBorder(true).SetTitle(" Commands (F5) ")
+
+	gli.commandFormPanel = formPanel
+	gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: gli.commandFormPanel, Key: tcell.KeyF5})
+
+	flex.AddItem(formPanel, 4, 0, false).
+		AddItem(resultPanel, 0, 1, false)
+
+	return flex
+}
+
 // createSearchPanel create search panel
 func (gli *RedisGli) createSearchPanel() *tview.InputField {
 	searchArea := tview.NewInputField().SetLabel(" Key ").SetChangedFunc(func(text string) {
-		keys, _, err := gli.redisClient.Scan(0, text, gli.maxKeyLimit).Result()
+		var keys []string
+		var err error
+
+		if text == "" || text == "*" {
+			keys, _, err = gli.redisClient.Scan(0, text, gli.maxKeyLimit).Result()
+		} else {
+			keys, err = gli.redisClient.Keys(text).Result()
+		}
+
 		if err != nil {
 			gli.outputFunc(tcell.ColorRed, fmt.Sprintf("Errors: %s", err))
 			return
@@ -194,6 +308,8 @@ func (gli *RedisGli) createMainPanel() *tview.Flex {
 	mainArea := tview.NewFlex()
 	mainArea.SetBorder(true).SetTitle(" Value ")
 
+	mainArea.AddItem(gli.welcomeScreen, 0, 1, false)
+
 	return mainArea
 }
 
@@ -240,7 +356,7 @@ func (gli *RedisGli) createKeySelectedHandler() func(index int, key string) func
 			}
 
 			// 移除主区域的边框，因为展示区域已经带有边框了
-			gli.mainPanel.SetBorder(false)
+			gli.mainPanel.RemoveItem(gli.welcomeScreen).SetBorder(false)
 
 			// 重置展示视图
 			mainHashView.Clear()

@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"gopkg.in/redis.v5"
+	"strings"
 )
 
 type RedisClient interface {
+	Keys(pattern string) *redis.StringSliceCmd
 	Scan(cursor uint64, match string, count int64) *redis.ScanCmd
 	Type(key string) *redis.StatusCmd
 	TTL(key string) *redis.DurationCmd
@@ -15,6 +17,7 @@ type RedisClient interface {
 	ZRangeWithScores(key string, start, stop int64) *redis.ZSliceCmd
 	HKeys(key string) *redis.StringSliceCmd
 	HGet(key, field string) *redis.StringCmd
+	Process(cmd redis.Cmder) error
 }
 
 // NewRedisClient create a new redis client which wraps single or cluster client
@@ -36,4 +39,20 @@ func NewRedisClient(config Config) RedisClient {
 	client := redis.NewClient(options)
 
 	return client
+}
+
+func RedisExecute(client RedisClient, command string) (interface{}, error) {
+	stringArgs := strings.Split(command, " ")
+	var args = make([]interface{}, len(stringArgs))
+	for i, s := range stringArgs {
+		args[i] = s
+	}
+
+	cmd := redis.NewCmd(args...)
+	err := client.Process(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	return cmd.Result()
 }
