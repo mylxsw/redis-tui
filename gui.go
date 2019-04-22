@@ -299,7 +299,13 @@ func (gli *RedisGli) createCommandPanel() *tview.Flex {
 
 // createSearchPanel create search panel
 func (gli *RedisGli) createSearchPanel() *tview.InputField {
-	searchArea := tview.NewInputField().SetLabel(" Key ").SetChangedFunc(func(text string) {
+	searchArea := tview.NewInputField().SetLabel(" Key ")
+	searchArea.SetDoneFunc(func(key tcell.Key) {
+		if key != tcell.KeyEnter {
+			return
+		}
+		var text = searchArea.GetText()
+
 		var keys []string
 		var err error
 
