@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/gdamore/tcell"
 	"strings"
+
+	"github.com/gdamore/tcell"
 
 	"github.com/go-redis/redis"
 )
@@ -36,7 +37,9 @@ func NewRedisClient(config Config, outputChan chan OutputMessage) RedisClient {
 	}
 
 	options := &redis.Options{
-		Addr: fmt.Sprintf("%s:%d", config.Host, config.Port), DB: config.DB,
+		Addr:     fmt.Sprintf("%s:%d", config.Host, config.Port),
+		DB:       config.DB,
+		Password: config.Password,
 	}
 
 	client := redis.NewClient(options)
