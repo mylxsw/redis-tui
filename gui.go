@@ -13,9 +13,9 @@ type KeyBindings map[string][]tcell.Key
 var keyBindings = KeyBindings{
 	"search":           {tcell.KeyF2, tcell.KeyCtrlS},
 	"keys":             {tcell.KeyF3, tcell.KeyCtrlK},
-	"key_list_value":   {tcell.KeyF6, tcell.KeyCtrlH},
+	"key_list_value":   {tcell.KeyF6, tcell.KeyCtrlY},
 	"key_string_value": {tcell.KeyF7, tcell.KeyCtrlA},
-	"key_hash":         {tcell.KeyF6, tcell.KeyCtrlH},
+	"key_hash":         {tcell.KeyF6, tcell.KeyCtrlY},
 	"output":           {tcell.KeyF9, tcell.KeyCtrlO},
 	"command":          {tcell.KeyF1, tcell.KeyCtrlN},
 	"command_focus":    {tcell.KeyF4, tcell.KeyCtrlF},
