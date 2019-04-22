@@ -41,7 +41,7 @@ func main() {
 	outputChan := make(chan OutputMessage, 10)
 
 	client := NewRedisClient(config, outputChan)
-	if err := NewRedisGli(client, 100, Version, GitCommit, outputChan, config).Start(); err != nil {
+	if err := NewRedisTUI(client, 100, Version, GitCommit, outputChan, config).Start(); err != nil {
 		panic(err)
 	}
 }

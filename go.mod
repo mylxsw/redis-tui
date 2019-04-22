@@ -1,4 +1,4 @@
-module github.com/mylxsw/go-skills/redis-gui
+module github.com/mylxsw/go-skills/redis-tui
 
 go 1.12
 

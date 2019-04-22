@@ -1,5 +1,5 @@
-# redis-gli
+# redis-Tui
 
-A redis GUI client in CLI.
+A Redis Text-based UI client in CLI.
 
 ![](./preview.gif)
