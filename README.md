@@ -2,4 +2,4 @@
 
 A redis GUI client in CLI.
 
-![](./preview.png)
+![](./preview.gif)

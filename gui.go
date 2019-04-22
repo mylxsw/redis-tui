@@ -7,27 +7,33 @@ import (
 	"time"
 )
 
-// OutputFunc is a function for log output
-type OutputFunc func(color tcell.Color, message string)
-
 type primitiveKey struct {
 	Primitive tview.Primitive
 	Key       tcell.Key
 }
 
+type OutputMessage struct {
+	Color   tcell.Color
+	Message string
+}
+
 // RedisGli is a redis gui object
 type RedisGli struct {
-	metaPanel     *tview.TextView
-	mainPanel     *tview.Flex
-	outputPanel   *tview.TextView
-	keyItemsPanel *tview.List
-	summaryPanel  *tview.TextView
-	searchPanel   *tview.InputField
-	welcomeScreen tview.Primitive
+	metaPanel           *tview.TextView
+	mainPanel           *tview.Flex
+	outputPanel         *tview.List
+	keyItemsPanel       *tview.List
+	summaryPanel        *tview.TextView
+	searchPanel         *tview.InputField
+	welcomeScreen       tview.Primitive
+	helpPanel           *tview.Flex
+	helpMessagePanel    *tview.TextView
+	helpServerInfoPanel *tview.TextView
 
-	commandPanel     *tview.Flex
-	commandFormPanel *tview.InputField
-	commandMode      bool
+	commandPanel       *tview.Flex
+	commandFormPanel   *tview.InputField
+	commandResultPanel *tview.TextView
+	commandMode        bool
 
 	leftPanel  *tview.Flex
 	rightPanel *tview.Flex
@@ -37,7 +43,7 @@ type RedisGli struct {
 	app    *tview.Application
 
 	redisClient RedisClient
-	outputFunc  OutputFunc
+	outputChan  chan OutputMessage
 
 	itemSelectedHandler func(index int, key string) func()
 
@@ -47,10 +53,12 @@ type RedisGli struct {
 
 	focusPrimitives   []primitiveKey
 	currentFocusIndex int
+
+	config Config
 }
 
 // NewRedisGli create a RedisGli object
-func NewRedisGli(redisClient RedisClient, maxKeyLimit int64, version string, gitCommit string) *RedisGli {
+func NewRedisGli(redisClient RedisClient, maxKeyLimit int64, version string, gitCommit string, outputChan chan OutputMessage, config Config) *RedisGli {
 	gli := &RedisGli{
 		redisClient:       redisClient,
 		maxKeyLimit:       maxKeyLimit,
@@ -58,6 +66,8 @@ func NewRedisGli(redisClient RedisClient, maxKeyLimit int64, version string, git
 		gitCommit:         gitCommit[0:8],
 		focusPrimitives:   make([]primitiveKey, 0),
 		currentFocusIndex: 0,
+		outputChan:        outputChan,
+		config:            config,
 	}
 
 	gli.welcomeScreen = tview.NewTextView().SetTitle("Hello, world!")
@@ -67,9 +77,9 @@ func NewRedisGli(redisClient RedisClient, maxKeyLimit int64, version string, git
 	gli.outputPanel = gli.createOutputPanel()
 	gli.summaryPanel = gli.createSummaryPanel()
 	gli.keyItemsPanel = gli.createKeyItemsPanel()
-	gli.outputFunc = gli.createOutputFunc()
 	gli.itemSelectedHandler = gli.createKeySelectedHandler()
 	gli.searchPanel = gli.createSearchPanel()
+	gli.helpPanel = gli.createHelpPanel()
 
 	gli.commandPanel = gli.createCommandPanel()
 
@@ -140,19 +150,28 @@ func (gli *RedisGli) redrawRightPanel(center tview.Primitive) {
 	gli.rightPanel.RemoveItem(gli.metaPanel).
 		RemoveItem(gli.outputPanel).
 		RemoveItem(gli.mainPanel).
-		RemoveItem(gli.commandPanel)
+		RemoveItem(gli.commandPanel).
+		RemoveItem(gli.helpPanel)
 
-	gli.rightPanel.AddItem(gli.metaPanel, 4, 1, false).
+	gli.rightPanel.AddItem(gli.helpPanel, 5, 1, false).
+		AddItem(gli.metaPanel, 4, 1, false).
 		AddItem(center, 0, 7, false).
-		AddItem(gli.outputPanel, 5, 1, false)
+		AddItem(gli.outputPanel, 8, 1, false)
 }
 
 // Start create the ui and start the program
 func (gli *RedisGli) Start() error {
 	go gli.app.QueueUpdateDraw(func() {
+		info, err := RedisServerInfo(gli.config, gli.redisClient)
+		if err != nil {
+			gli.outputChan <- OutputMessage{tcell.ColorRed, fmt.Sprintf("errors: %s", err)}
+		}
+
+		gli.helpServerInfoPanel.SetText(info)
+
 		keys, _, err := gli.redisClient.Scan(0, "*", gli.maxKeyLimit).Result()
 		if err != nil {
-			gli.outputPanel.SetTextColor(tcell.ColorRed).SetText(fmt.Sprintf("Errors: %s", err))
+			gli.outputChan <- OutputMessage{tcell.ColorRed, fmt.Sprintf("errors: %s", err)}
 			return
 		}
 
@@ -165,6 +184,33 @@ func (gli *RedisGli) Start() error {
 		gli.app.SetFocus(gli.keyItemsPanel)
 	})
 
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case out := <-gli.outputChan:
+				(func(out OutputMessage) {
+					gli.app.QueueUpdateDraw(func() {
+						// gli.outputPanel.SetTextColor(out.Color).SetText(fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), out.Message))
+						gli.outputPanel.AddItem(fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), out.Message), "", 0, nil)
+						gli.outputPanel.SetCurrentItem(-1)
+					})
+				})(out)
+			case <-ticker.C:
+				gli.app.QueueUpdateDraw(func() {
+					info, err := RedisServerInfo(gli.config, gli.redisClient)
+					if err != nil {
+						gli.outputChan <- OutputMessage{tcell.ColorRed, fmt.Sprintf("errors: %s", err)}
+					}
+
+					gli.helpServerInfoPanel.SetText(info)
+				})
+			}
+		}
+	}()
+
 	gli.pages = tview.NewPages()
 	gli.pages.AddPage("base", gli.layout, true, true)
 
@@ -173,7 +219,7 @@ func (gli *RedisGli) Start() error {
 
 func (gli *RedisGli) createSummaryPanel() *tview.TextView {
 	panel := tview.NewTextView()
-	panel.SetBorder(true).SetTitle("Info")
+	panel.SetBorder(true).SetTitle(" Info ")
 	return panel
 }
 
@@ -186,9 +232,9 @@ func (gli *RedisGli) createCommandPanel() *tview.Flex {
 	// flex.SetBorder(true).SetTitle(" Commands (F1) ").SetBackgroundColor(tcell.Color16)
 
 	resultPanel := tview.NewTextView()
-	resultPanel.SetBorder(true).SetTitle(" Results ")
+	resultPanel.SetBorder(true).SetTitle(" Results (F5) ")
 
-	formPanel := tview.NewInputField().SetLabel("Command")
+	formPanel := tview.NewInputField().SetLabel("Command ")
 	var locked bool
 	formPanel.SetDoneFunc(func(key tcell.Key) {
 		if key != tcell.KeyEnter {
@@ -214,7 +260,7 @@ func (gli *RedisGli) createCommandPanel() *tview.Flex {
 		}
 
 		cmdText := formPanel.GetText()
-		gli.outputFunc(tcell.ColorOrange, fmt.Sprintf("Command %s is processing...", cmdText))
+		gli.outputChan <- OutputMessage{Color: tcell.ColorOrange, Message: fmt.Sprintf("Command %s is processing...", cmdText)}
 		locked = true
 
 		go func(cmdText string) {
@@ -225,22 +271,25 @@ func (gli *RedisGli) createCommandPanel() *tview.Flex {
 
 				res, err := RedisExecute(gli.redisClient, cmdText)
 				if err != nil {
-					gli.outputFunc(tcell.ColorRed, fmt.Sprintf("Errors: %s", err))
+					gli.outputChan <- OutputMessage{tcell.ColorRed, fmt.Sprintf("errors: %s", err)}
 					return
 				}
 
 				resultPanel.SetText(fmt.Sprintf("%v", res))
-				gli.outputFunc(tcell.ColorGreen, fmt.Sprintf("Command %s succeed", cmdText))
+				gli.outputChan <- OutputMessage{tcell.ColorGreen, fmt.Sprintf("Command %s succeed", cmdText)}
 			})
 		}(cmdText)
 
 		formPanel.SetText("")
 	})
 	// formPanel.SetBackgroundColor(tcell.ColorOrange)
-	formPanel.SetBorder(true).SetTitle(" Commands (F5) ")
+	formPanel.SetBorder(true).SetTitle(" Commands (F4) ")
 
 	gli.commandFormPanel = formPanel
-	gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: gli.commandFormPanel, Key: tcell.KeyF5})
+	gli.commandResultPanel = resultPanel
+
+	gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: gli.commandFormPanel, Key: tcell.KeyF4})
+	gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: gli.commandResultPanel, Key: tcell.KeyF5})
 
 	flex.AddItem(formPanel, 4, 0, false).
 		AddItem(resultPanel, 0, 1, false)
@@ -261,7 +310,7 @@ func (gli *RedisGli) createSearchPanel() *tview.InputField {
 		}
 
 		if err != nil {
-			gli.outputFunc(tcell.ColorRed, fmt.Sprintf("Errors: %s", err))
+			gli.outputChan <- OutputMessage{tcell.ColorRed, fmt.Sprintf("errors: %s", err)}
 			return
 		}
 
@@ -298,7 +347,7 @@ func (gli *RedisGli) primitivesFilter(items []primitiveKey, filter func(item pri
 // createMetaPanel create a panel for meta info
 func (gli *RedisGli) createMetaPanel() *tview.TextView {
 	metaInfoArea := tview.NewTextView().SetDynamicColors(true).SetRegions(true)
-	metaInfoArea.SetBorder(true).SetTitle(fmt.Sprintf(" Version: %s (%s) ", gli.version, gli.gitCommit))
+	metaInfoArea.SetBorder(true).SetTitle(" Meta ")
 
 	return metaInfoArea
 }
@@ -314,18 +363,29 @@ func (gli *RedisGli) createMainPanel() *tview.Flex {
 }
 
 // createOutputPanel create a panel for outputFunc
-func (gli *RedisGli) createOutputPanel() *tview.TextView {
-	outputArea := tview.NewTextView()
-	outputArea.SetBorder(true).SetTitle(" Output ")
+func (gli *RedisGli) createOutputPanel() *tview.List {
+	outputArea := tview.NewList().ShowSecondaryText(false)
+	outputArea.SetBorder(true).SetTitle(" Output (F9) ")
+
+	gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: outputArea, Key: tcell.KeyF9})
 
 	return outputArea
 }
 
-// createOutputFunc create a outputFunc func
-func (gli *RedisGli) createOutputFunc() OutputFunc {
-	return func(color tcell.Color, message string) {
-		gli.outputPanel.SetTextColor(color).SetText(fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), message))
-	}
+// createHelpPanel create a panel for help message display
+func (gli *RedisGli) createHelpPanel() *tview.Flex {
+	helpPanel := tview.NewFlex().SetDirection(tview.FlexRow)
+	helpPanel.SetBorder(true).SetTitle(fmt.Sprintf(" Version: %s (%s) ", gli.version, gli.gitCommit))
+
+	gli.helpServerInfoPanel = tview.NewTextView().SetDynamicColors(true).SetRegions(true)
+	helpPanel.AddItem(gli.helpServerInfoPanel, 2, 1, false)
+
+	gli.helpMessagePanel = tview.NewTextView()
+	gli.helpMessagePanel.SetTextColor(tcell.ColorOrange).SetText(" ❈ Press F1 to switch between command panel and value panel, Esc to quit")
+
+	helpPanel.AddItem(gli.helpMessagePanel, 1, 1, false)
+
+	return helpPanel
 }
 
 // createKeySelectedHandler create a handler for item selected event
@@ -333,25 +393,25 @@ func (gli *RedisGli) createKeySelectedHandler() func(index int, key string) func
 
 	// 用于KV展示的视图
 	mainStringView := tview.NewTextView()
-	mainStringView.SetBorder(true).SetTitle(" Value ")
+	mainStringView.SetBorder(true).SetTitle(" Value (F7) ")
 
 	mainHashView := tview.NewList().ShowSecondaryText(false)
-	mainHashView.SetBorder(true).SetTitle(" Hash Key (F4) ")
+	mainHashView.SetBorder(true).SetTitle(" Hash Key (F6) ")
 
 	mainListView := tview.NewList().ShowSecondaryText(false).SetSecondaryTextColor(tcell.ColorOrangeRed)
-	mainListView.SetBorder(true).SetTitle(" Value (F4) ")
+	mainListView.SetBorder(true).SetTitle(" Value (F6) ")
 
 	return func(index int, key string) func() {
 		return func() {
 			keyType, err := gli.redisClient.Type(key).Result()
 			if err != nil {
-				gli.outputFunc(tcell.ColorRed, fmt.Sprintf("Errors: %s", err))
+				gli.outputChan <- OutputMessage{tcell.ColorRed, fmt.Sprintf("errors: %s", err)}
 				return
 			}
 
 			ttl, err := gli.redisClient.TTL(key).Result()
 			if err != nil {
-				gli.outputFunc(tcell.ColorRed, fmt.Sprintf("Errors: %s", err))
+				gli.outputChan <- OutputMessage{tcell.ColorRed, fmt.Sprintf("errors: %s", err)}
 				return
 			}
 
@@ -364,7 +424,7 @@ func (gli *RedisGli) createKeySelectedHandler() func(index int, key string) func
 			mainListView.Clear().ShowSecondaryText(false)
 
 			gli.focusPrimitives = gli.primitivesFilter(gli.focusPrimitives, func(item primitiveKey) bool {
-				return item.Primitive != mainHashView && item.Primitive != mainListView
+				return item.Primitive != mainHashView && item.Primitive != mainListView && item.Primitive != mainStringView
 			})
 
 			gli.mainPanel.RemoveItem(mainStringView)
@@ -376,15 +436,16 @@ func (gli *RedisGli) createKeySelectedHandler() func(index int, key string) func
 			case "string":
 				result, err := gli.redisClient.Get(key).Result()
 				if err != nil {
-					gli.outputFunc(tcell.ColorRed, fmt.Sprintf("Errors: %s", err))
+					gli.outputChan <- OutputMessage{tcell.ColorRed, fmt.Sprintf("errors: %s", err)}
 					return
 				}
 
 				gli.mainPanel.AddItem(mainStringView.SetText(fmt.Sprintf(" %s", result)), 0, 1, false)
+				gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: mainStringView, Key: tcell.KeyF7})
 			case "list":
 				values, err := gli.redisClient.LRange(key, 0, 1000).Result()
 				if err != nil {
-					gli.outputFunc(tcell.ColorRed, fmt.Sprintf("Errors: %s", err))
+					gli.outputChan <- OutputMessage{tcell.ColorRed, fmt.Sprintf("errors: %s", err)}
 					return
 				}
 
@@ -393,12 +454,12 @@ func (gli *RedisGli) createKeySelectedHandler() func(index int, key string) func
 				}
 
 				gli.mainPanel.AddItem(mainListView, 0, 1, false)
-				gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: mainListView, Key: tcell.KeyF4})
+				gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: mainListView, Key: tcell.KeyF6})
 
 			case "set":
 				values, err := gli.redisClient.SMembers(key).Result()
 				if err != nil {
-					gli.outputFunc(tcell.ColorRed, fmt.Sprintf("Errors: %s", err))
+					gli.outputChan <- OutputMessage{tcell.ColorRed, fmt.Sprintf("errors: %s", err)}
 					return
 				}
 
@@ -407,12 +468,12 @@ func (gli *RedisGli) createKeySelectedHandler() func(index int, key string) func
 				}
 
 				gli.mainPanel.AddItem(mainListView, 0, 1, false)
-				gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: mainListView, Key: tcell.KeyF4})
+				gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: mainListView, Key: tcell.KeyF6})
 
 			case "zset":
 				values, err := gli.redisClient.ZRangeWithScores(key, 0, 1000).Result()
 				if err != nil {
-					gli.outputFunc(tcell.ColorRed, fmt.Sprintf("Errors: %s", err))
+					gli.outputChan <- OutputMessage{tcell.ColorRed, fmt.Sprintf("errors: %s", err)}
 					return
 				}
 
@@ -425,12 +486,12 @@ func (gli *RedisGli) createKeySelectedHandler() func(index int, key string) func
 				}
 
 				gli.mainPanel.AddItem(mainListView, 0, 1, false)
-				gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: mainListView, Key: tcell.KeyF4})
+				gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: mainListView, Key: tcell.KeyF6})
 
 			case "hash":
 				hashKeys, err := gli.redisClient.HKeys(key).Result()
 				if err != nil {
-					gli.outputFunc(tcell.ColorRed, fmt.Sprintf("Errors: %s", err))
+					gli.outputChan <- OutputMessage{tcell.ColorRed, fmt.Sprintf("errors: %s", err)}
 					return
 				}
 
@@ -439,7 +500,7 @@ func (gli *RedisGli) createKeySelectedHandler() func(index int, key string) func
 						return func() {
 							val, err := gli.redisClient.HGet(key, k).Result()
 							if err != nil {
-								gli.outputFunc(tcell.ColorRed, fmt.Sprintf("Errors: %s", err))
+								gli.outputChan <- OutputMessage{tcell.ColorRed, fmt.Sprintf("errors: %s", err)}
 								return
 							}
 
@@ -451,9 +512,10 @@ func (gli *RedisGli) createKeySelectedHandler() func(index int, key string) func
 				gli.mainPanel.AddItem(mainHashView, 0, 3, false).
 					AddItem(mainStringView, 0, 7, false)
 
-				gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: mainHashView, Key: tcell.KeyF4})
+				gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: mainHashView, Key: tcell.KeyF6})
+				gli.focusPrimitives = append(gli.focusPrimitives, primitiveKey{Primitive: mainStringView, Key: tcell.KeyF7})
 			}
-			gli.outputFunc(tcell.ColorGreen, fmt.Sprintf("Query %s OK, Type=%s, TTL=%s", key, keyType, ttl.String()))
+			gli.outputChan <- OutputMessage{tcell.ColorGreen, fmt.Sprintf("query %s OK, type=%s, ttl=%s", key, keyType, ttl.String())}
 			gli.metaPanel.SetText(fmt.Sprintf("Key: %s\nType: %s, TTL: %s", key, keyType, ttl.String())).SetTextAlign(tview.AlignCenter)
 		}
 	}
