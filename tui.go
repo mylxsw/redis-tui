@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/gdamore/tcell"
+	"github.com/mylxsw/go-toolkit/collection"
 	"github.com/rivo/tview"
 	"strings"
 	"time"
@@ -77,7 +78,7 @@ type RedisTUI struct {
 	helpServerInfoPanel *tview.TextView
 
 	commandPanel       *tview.Flex
-	commandFormPanel   *tview.InputField
+	commandInputField  *tview.InputField
 	commandResultPanel *tview.TextView
 	commandMode        bool
 
@@ -176,8 +177,8 @@ func NewRedisTUI(redisClient RedisClient, maxKeyLimit int64, version string, git
 				tui.redrawRightPanel(tui.commandPanel)
 
 				for i, p := range tui.focusPrimitives {
-					if p.Primitive == tui.commandFormPanel {
-						tui.app.SetFocus(tui.commandFormPanel)
+					if p.Primitive == tui.commandInputField {
+						tui.app.SetFocus(tui.commandInputField)
 						tui.currentFocusIndex = i
 					}
 				}
@@ -252,6 +253,28 @@ func (tui *RedisTUI) Start() error {
 
 	tui.pages = tview.NewPages()
 	tui.pages.AddPage("base", tui.layout, true, true)
+	// welcomeScreen := tview.NewInputField().SetDrawFunc(func(screen tcell.Screen, x, y, width, height int) (i int, i2 int, i3 int, i4 int) {
+	// 	// Draw a horizontal line across the middle of the box.
+	// 	centerY := y + height/2
+	// 	for cx := x + 1; cx < x+width-1; cx++ {
+	// 		screen.SetContent(cx, centerY, tview.BoxDrawingsDoubleDownAndHorizontal, nil, tcell.StyleDefault.Foreground(tcell.ColorWhite))
+	// 	}
+	//
+	// 	// Write some text along the horizontal line.
+	// 	tview.Print(screen, " Hello, world! ", x+1, centerY, width-2, tview.AlignCenter, tcell.ColorYellow)
+	//
+	// 	// Space for other content.
+	// 	return x + 1, centerY + 1, width - 2, height - (centerY + 1 - y)
+	// })
+	//
+	// tui.pages.AddPage("welcome_screen", welcomeScreen, true, true)
+	//
+	// go func() {
+	// 	time.Sleep(2 * time.Second)
+	// 	tui.app.QueueUpdateDraw(func() {
+	// 		tui.pages.RemovePage("welcome_screen")
+	// 	})
+	// }()
 
 	return tui.app.SetRoot(tui.pages, true).Run()
 }
@@ -285,9 +308,13 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 	resultPanel := tview.NewTextView()
 	resultPanel.SetBorder(true).SetTitle(fmt.Sprintf(" Results (%s) ", keyBindings.Name("command_result")))
 
-	formPanel := tview.NewInputField().SetLabel("Command ")
+	formPanel := tview.NewFlex().SetDirection(tview.FlexRow)
+	formPanel.SetBorder(true).SetTitle(fmt.Sprintf(" Commands (%s) ", keyBindings.Name("command_focus")))
+	commandTipView := tview.NewTextView().SetDynamicColors(true).SetRegions(true)
+
+	commandInputField := tview.NewInputField().SetLabel("Command ")
 	var locked bool
-	formPanel.SetDoneFunc(func(key tcell.Key) {
+	commandInputField.SetDoneFunc(func(key tcell.Key) {
 		if key != tcell.KeyEnter {
 			return
 		}
@@ -301,7 +328,7 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 					AddButtons([]string{"OK"}).
 					SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 						tui.pages.HidePage(pageID).RemovePage(pageID)
-						tui.app.SetFocus(formPanel)
+						tui.app.SetFocus(commandInputField)
 					}),
 				false,
 				true,
@@ -310,7 +337,7 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 			return
 		}
 
-		cmdText := formPanel.GetText()
+		cmdText := commandInputField.GetText()
 		tui.outputChan <- OutputMessage{Color: tcell.ColorOrange, Message: fmt.Sprintf("Command %s is processing...", cmdText)}
 		locked = true
 
@@ -331,18 +358,46 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 			})
 		}(cmdText)
 
-		formPanel.SetText("")
-	})
-	// formPanel.SetBackgroundColor(tcell.ColorOrange)
-	formPanel.SetBorder(true).SetTitle(fmt.Sprintf(" Commands (%s) ", keyBindings.Name("command_focus")))
+		commandInputField.SetText("")
+	}).SetChangedFunc(func(text string) {
+		if text == "" {
+			commandTipView.Clear()
+			return
+		}
 
-	tui.commandFormPanel = formPanel
+		matchedCommands := RedisMatchedCommands(text)
+		if len(matchedCommands) == 0 {
+			commandTipView.Clear()
+		} else if len(matchedCommands) == 1 {
+			commandTipView.SetTextColor(tcell.ColorOrange).SetText(fmt.Sprintf(
+				"\n%s %s\n    [green]%s (since %s).",
+				matchedCommands[0].Command,
+				matchedCommands[0].Args,
+				matchedCommands[0].Desc,
+				matchedCommands[0].Version,
+			))
+		} else {
+			commandTipView.SetTextColor(tcell.ColorBlue).
+				SetText(collection.MustNew(matchedCommands).Reduce(func(carry string, item RedisHelp) string {
+					if carry == "" {
+						return item.Command
+					}
+
+					return carry + ", " + item.Command
+				}, "").(string))
+		}
+	})
+
+	tui.commandInputField = commandInputField
 	tui.commandResultPanel = resultPanel
 
-	tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: tui.commandFormPanel, Key: keyBindings.KeyID("command_focus")})
+	formPanel.AddItem(commandInputField, 1, 1, false).
+		AddItem(commandTipView, 4, 4, false)
+
+	tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: tui.commandInputField, Key: keyBindings.KeyID("command_focus")})
 	tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: tui.commandResultPanel, Key: keyBindings.KeyID("command_result")})
 
-	flex.AddItem(formPanel, 4, 0, false).
+	flex.AddItem(formPanel, 7, 0, false).
 		AddItem(resultPanel, 0, 1, false)
 
 	return flex
