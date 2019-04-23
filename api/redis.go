@@ -1,7 +1,9 @@
-package main
+package api
 
 import (
 	"fmt"
+	"github.com/mylxsw/go-skills/redis-tui/config"
+	"github.com/mylxsw/go-skills/redis-tui/core"
 	"strings"
 
 	"github.com/gdamore/tcell"
@@ -26,28 +28,28 @@ type RedisClient interface {
 }
 
 // NewRedisClient create a new redis client which wraps single or cluster client
-func NewRedisClient(config Config, outputChan chan OutputMessage) RedisClient {
-	if config.Cluster {
+func NewRedisClient(conf config.Config, outputChan chan core.OutputMessage) RedisClient {
+	if conf.Cluster {
 		options := &redis.ClusterOptions{
-			Addrs:    []string{fmt.Sprintf("%s:%d", config.Host, config.Port)},
-			Password: config.Password,
+			Addrs:    []string{fmt.Sprintf("%s:%d", conf.Host, conf.Port)},
+			Password: conf.Password,
 		}
 
 		return redis.NewClusterClient(options)
 	}
 
 	options := &redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", config.Host, config.Port),
-		DB:       config.DB,
-		Password: config.Password,
+		Addr:     fmt.Sprintf("%s:%d", conf.Host, conf.Port),
+		DB:       conf.DB,
+		Password: conf.Password,
 	}
 
 	client := redis.NewClient(options)
-	if config.Debug {
+	if conf.Debug {
 		client.WrapProcess(func(oldProcess func(cmd redis.Cmder) error) func(cmd redis.Cmder) error {
 			return func(cmd redis.Cmder) error {
 
-				outputChan <- OutputMessage{Color: tcell.ColorOrange, Message: fmt.Sprintf("redis: <%s>", cmd)}
+				outputChan <- core.OutputMessage{Color: tcell.ColorOrange, Message: fmt.Sprintf("redis: <%s>", cmd)}
 				err := oldProcess(cmd)
 
 				return err
@@ -68,7 +70,7 @@ func RedisExecute(client RedisClient, command string) (interface{}, error) {
 	return client.Do(args...).Result()
 }
 
-func RedisServerInfo(config Config, client RedisClient) (string, error) {
+func RedisServerInfo(conf config.Config, client RedisClient) (string, error) {
 	res, err := client.Info().Result()
 	if err != nil {
 		return "", err
@@ -89,8 +91,8 @@ func RedisServerInfo(config Config, client RedisClient) (string, error) {
 	}
 
 	keySpace := "-"
-	if ks, ok := kvpairs[fmt.Sprintf("db%d", config.DB)]; ok {
+	if ks, ok := kvpairs[fmt.Sprintf("db%d", conf.DB)]; ok {
 		keySpace = ks
 	}
-	return fmt.Sprintf(" RedisVersion: %s    Memory: %s    Server: %s:%d/%d\n KeySpace: %s", kvpairs["redis_version"], kvpairs["used_memory_human"], config.Host, config.Port, config.DB, keySpace), nil
+	return fmt.Sprintf(" RedisVersion: %s    Memory: %s    Server: %s:%d/%d\n KeySpace: %s", kvpairs["redis_version"], kvpairs["used_memory_human"], conf.Host, conf.Port, conf.DB, keySpace), nil
 }

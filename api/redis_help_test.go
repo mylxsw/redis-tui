@@ -1,11 +1,12 @@
-package main
+package api_test
 
 import (
+	"github.com/mylxsw/go-skills/redis-tui/api"
 	"testing"
 )
 
 func TestRedisHelpMatch(t *testing.T) {
-	if !RedisHelpMatch("client get", func(help RedisHelp) {
+	if !api.RedisHelpMatch("client get", func(help api.RedisHelp) {
 		if help.Command != "CLIENT GETNAME" {
 			t.Error("test failed")
 		}
@@ -15,7 +16,7 @@ func TestRedisHelpMatch(t *testing.T) {
 }
 
 func TestRedisMatchedCommands(t *testing.T) {
-	cmds := RedisMatchedCommands("cluster re")
+	cmds := api.RedisMatchedCommands("cluster re")
 	if len(cmds) != 3 {
 		t.Error("test failed")
 	}
