@@ -3,10 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/mylxsw/go-skills/redis-tui/api"
-	"github.com/mylxsw/go-skills/redis-tui/config"
-	"github.com/mylxsw/go-skills/redis-tui/core"
-	"github.com/mylxsw/go-skills/redis-tui/tui"
+	"github.com/mylxsw/redis-tui/api"
+	"github.com/mylxsw/redis-tui/config"
+	"github.com/mylxsw/redis-tui/core"
+	"github.com/mylxsw/redis-tui/tui"
 )
 
 var conf = config.Config{}
@@ -37,7 +37,7 @@ func main() {
 		return
 	}
 
-	outputChan := make(chan core.OutputMessage, 10)
+	outputChan := make(chan core.OutputMessage)
 	if err := tui.NewRedisTUI(api.NewRedisClient(conf, outputChan), 100, Version, GitCommit, outputChan, conf).Start(); err != nil {
 		panic(err)
 	}

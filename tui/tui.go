@@ -3,11 +3,12 @@ package tui
 import (
 	"fmt"
 	"github.com/gdamore/tcell"
-	"github.com/mylxsw/go-skills/redis-tui/api"
-	"github.com/mylxsw/go-skills/redis-tui/config"
-	"github.com/mylxsw/go-skills/redis-tui/core"
 	"github.com/mylxsw/go-toolkit/collection"
+	"github.com/mylxsw/redis-tui/api"
+	"github.com/mylxsw/redis-tui/config"
+	"github.com/mylxsw/redis-tui/core"
 	"github.com/rivo/tview"
+	"strings"
 	"time"
 )
 
@@ -41,14 +42,17 @@ type RedisTUI struct {
 	pages  *tview.Pages
 	app    *tview.Application
 
-	redisClient api.RedisClient
-	outputChan  chan core.OutputMessage
+	redisClient      api.RedisClient
+	outputChan       chan core.OutputMessage
+	uiViewUpdateChan chan func()
 
 	itemSelectedHandler func(index int, key string) func()
 
-	maxKeyLimit int64
-	version     string
-	gitCommit   string
+	maxKeyLimit       int64
+	maxCharacterLimit int64
+
+	version   string
+	gitCommit string
 
 	focusPrimitives   []primitiveKey
 	currentFocusIndex int
@@ -62,6 +66,7 @@ func NewRedisTUI(redisClient api.RedisClient, maxKeyLimit int64, version string,
 	tui := &RedisTUI{
 		redisClient:       redisClient,
 		maxKeyLimit:       maxKeyLimit,
+		maxCharacterLimit: maxKeyLimit * 20,
 		version:           version,
 		gitCommit:         gitCommit,
 		focusPrimitives:   make([]primitiveKey, 0),
@@ -69,6 +74,7 @@ func NewRedisTUI(redisClient api.RedisClient, maxKeyLimit int64, version string,
 		outputChan:        outputChan,
 		config:            conf,
 		keyBindings:       core.NewKeyBinding(),
+		uiViewUpdateChan:  make(chan func()),
 	}
 
 	tui.welcomeScreen = tview.NewTextView().SetTitle("Hello, world!")
@@ -134,6 +140,7 @@ func NewRedisTUI(redisClient api.RedisClient, maxKeyLimit int64, version string,
 					if p.Primitive == tui.commandInputField {
 						tui.app.SetFocus(tui.commandInputField)
 						tui.currentFocusIndex = i
+						break
 					}
 				}
 			}
@@ -155,29 +162,20 @@ func NewRedisTUI(redisClient api.RedisClient, maxKeyLimit int64, version string,
 
 // Start create the ui and start the program
 func (tui *RedisTUI) Start() error {
-	go tui.app.QueueUpdateDraw(func() {
-		info, err := api.RedisServerInfo(tui.config, tui.redisClient)
-		if err != nil {
-			tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+	go func() {
+		for {
+			select {
+			case f := <-tui.uiViewUpdateChan:
+				(func() {
+					defer func() {
+						if err := recover(); err != nil {
+						}
+					}()
+					tui.app.QueueUpdateDraw(f)
+				})()
+			}
 		}
-
-		tui.helpServerInfoPanel.SetText(info)
-
-		keys, _, err := tui.redisClient.Scan(0, "*", tui.maxKeyLimit).Result()
-		if err != nil {
-			tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
-			return
-		}
-
-		tui.summaryPanel.SetText(fmt.Sprintf(" Total matched: %d", len(keys)))
-
-		for i, k := range keys {
-			tui.keyItemsPanel.AddItem(tui.keyItemsFormat(i, k), "", 0, tui.itemSelectedHandler(i, k))
-		}
-
-		tui.app.SetFocus(tui.keyItemsPanel)
-	})
-
+	}()
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
@@ -185,24 +183,47 @@ func (tui *RedisTUI) Start() error {
 		for {
 			select {
 			case out := <-tui.outputChan:
-				(func(out core.OutputMessage) {
-					tui.app.QueueUpdateDraw(func() {
-						// tui.outputPanel.SetTextColor(out.Color).SetText(fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), out.Message))
-						tui.outputPanel.AddItem(fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), out.Message), "", 0, nil)
-						tui.outputPanel.SetCurrentItem(-1)
-					})
-				})(out)
+				tui.uiViewUpdateChan <- func() {
+					// tui.outputPanel.SetTextColor(out.Color).SetText(fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), out.Message))
+					tui.outputPanel.AddItem(fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), out.Message), "", 0, nil)
+					tui.outputPanel.SetCurrentItem(-1)
+				}
 			case <-ticker.C:
-				tui.app.QueueUpdateDraw(func() {
-					info, err := api.RedisServerInfo(tui.config, tui.redisClient)
-					if err != nil {
-						tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
-					}
+				info, err := api.RedisServerInfo(tui.config, tui.redisClient)
+				if err != nil {
+					tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+				}
 
+				tui.uiViewUpdateChan <- func() {
 					tui.helpServerInfoPanel.SetText(info)
-				})
+				}
 			}
 		}
+	}()
+
+	go func() {
+		info, err := api.RedisServerInfo(tui.config, tui.redisClient)
+		if err != nil {
+			tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+		}
+		tui.app.QueueUpdateDraw(func() {
+			tui.helpServerInfoPanel.SetText(info)
+		})
+
+		keys, _, err := tui.redisClient.Scan(0, "*", tui.maxKeyLimit).Result()
+		if err != nil {
+			tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+			return
+		}
+		tui.app.QueueUpdateDraw(func() {
+			tui.summaryPanel.SetText(fmt.Sprintf(" Total matched: %d", len(keys)))
+
+			for i, k := range keys {
+				tui.keyItemsPanel.AddItem(tui.keyItemsFormat(i, k), "", 0, tui.itemSelectedHandler(i, k))
+			}
+
+			tui.app.SetFocus(tui.keyItemsPanel)
+		})
 	}()
 
 	tui.pages = tview.NewPages()
@@ -267,13 +288,14 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 	commandTipView := tview.NewTextView().SetDynamicColors(true).SetRegions(true)
 
 	commandInputField := tview.NewInputField().SetLabel("Command ")
-	var locked bool
-	commandInputField.SetDoneFunc(func(key tcell.Key) {
-		if key != tcell.KeyEnter {
-			return
-		}
 
-		if locked {
+	locked := make(chan interface{}, 1)
+	locked <- struct{}{}
+	commandInputField.SetDoneFunc(func(key tcell.Key) {
+		select {
+		case <-locked:
+
+		default:
 			pageID := "alert"
 			tui.pages.AddPage(
 				pageID,
@@ -293,23 +315,50 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 
 		cmdText := commandInputField.GetText()
 		tui.outputChan <- core.OutputMessage{Color: tcell.ColorOrange, Message: fmt.Sprintf("Command %s is processing...", cmdText)}
-		locked = true
 
 		go func(cmdText string) {
-			tui.app.QueueUpdateDraw(func() {
-				defer func() {
-					locked = false
-				}()
+			defer func() {
+				locked <- struct{}{}
+			}()
+			res, err := api.RedisExecute(tui.redisClient, cmdText)
+			if err != nil {
+				tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+				return
+			}
 
-				res, err := api.RedisExecute(tui.redisClient, cmdText)
-				if err != nil {
-					tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
-					return
+			// format redis output
+			var output string
+
+			switch res.(type) {
+			case string:
+				output = res.(string)
+			case []interface{}:
+				var resStrs = make([]string, len(res.([]interface{})))
+				for i, v := range res.([]interface{}) {
+					resStrs[i] = fmt.Sprintf("%v", v)
 				}
 
-				resultPanel.SetText(fmt.Sprintf("%v", res))
-				tui.outputChan <- core.OutputMessage{Color: tcell.ColorGreen, Message: fmt.Sprintf("Command %s succeed", cmdText)}
-			})
+				output = strings.Join(resStrs, "\n")
+			default:
+				output = fmt.Sprintf("%v", res)
+			}
+
+			// If the output content is too long, the interface will be suspended for a long time
+			if len(output) > int(tui.maxCharacterLimit) {
+				output = output[:tui.maxCharacterLimit] + fmt.Sprintf("\n\n ~ %d+ charactors omitted ~", len(output)-int(tui.maxCharacterLimit))
+			}
+
+			outputSlices := strings.Split(output, "\n")
+			for i, v := range outputSlices {
+				outputSlices[i] = fmt.Sprintf("%5d | %s", i+1, v)
+			}
+
+			output = strings.Join(outputSlices, "\n")
+
+			tui.outputChan <- core.OutputMessage{Color: tcell.ColorGreen, Message: fmt.Sprintf("Command %s succeed", cmdText)}
+			tui.uiViewUpdateChan <- func() {
+				resultPanel.SetText(output)
+			}
 		}(cmdText)
 
 		commandInputField.SetText("")
@@ -384,6 +433,9 @@ func (tui *RedisTUI) createSearchPanel() *tview.InputField {
 
 		tui.summaryPanel.SetText(fmt.Sprintf(" Total matched: %d", len(keys)))
 		for i, k := range keys {
+			if i > int(tui.maxKeyLimit) {
+				break
+			}
 			tui.keyItemsPanel.AddItem(tui.keyItemsFormat(i, k), "", 0, tui.itemSelectedHandler(i, k))
 		}
 	})

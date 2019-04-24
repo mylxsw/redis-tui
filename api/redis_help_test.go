@@ -1,7 +1,7 @@
 package api_test
 
 import (
-	"github.com/mylxsw/go-skills/redis-tui/api"
+	"github.com/mylxsw/redis-tui/api"
 	"testing"
 )
 

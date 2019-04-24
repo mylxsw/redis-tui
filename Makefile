@@ -3,7 +3,7 @@ GitCommit := $(shell git rev-parse HEAD)
 LDFLAGS := "-s -w -X main.Version=$(Version) -X main.GitCommit=$(GitCommit)"
 
 run-dev: build 
-	./bin/redis-tui -h 192.168.1.230
+	./bin/redis-tui -h 192.168.1.230 2>xxx.log
 
 run: build 
 	./bin/redis-tui

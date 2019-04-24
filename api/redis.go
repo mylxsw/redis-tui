@@ -2,12 +2,12 @@ package api
 
 import (
 	"fmt"
-	"github.com/mylxsw/go-skills/redis-tui/config"
-	"github.com/mylxsw/go-skills/redis-tui/core"
+	"github.com/mylxsw/redis-tui/config"
+	"github.com/mylxsw/redis-tui/core"
 	"strings"
+	"time"
 
 	"github.com/gdamore/tcell"
-
 	"github.com/go-redis/redis"
 )
 
@@ -39,9 +39,11 @@ func NewRedisClient(conf config.Config, outputChan chan core.OutputMessage) Redi
 	}
 
 	options := &redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", conf.Host, conf.Port),
-		DB:       conf.DB,
-		Password: conf.Password,
+		Addr:         fmt.Sprintf("%s:%d", conf.Host, conf.Port),
+		DB:           conf.DB,
+		Password:     conf.Password,
+		WriteTimeout: 3 * time.Second,
+		ReadTimeout:  2 * time.Second,
 	}
 
 	client := redis.NewClient(options)
