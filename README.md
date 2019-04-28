@@ -7,6 +7,7 @@ A Redis Text-based UI client in CLI.
 
 ## TODO
 
-- [ ] 解决正式环境一般禁用Keys命令无法获取Key列表的问题
-- [ ] 执行命令是命令自动完成功能
-- [ ] 命令执行历史功能，通过上下按键可以快速切换之前的命令
+- [ ] Solve the problem that the official environment generally disables the `KEYS` command to get the Key list
+- [ ] Command auto-completion function when executing commands
+- [x] Command execution history function, you can quickly switch the previous command by pressing the up and down buttons
+- [ ] The return value of the `SCAN` command is not formatted correctly

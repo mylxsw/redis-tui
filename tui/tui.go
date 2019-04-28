@@ -2,14 +2,15 @@ package tui
 
 import (
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/gdamore/tcell"
 	"github.com/mylxsw/go-toolkit/collection"
 	"github.com/mylxsw/redis-tui/api"
 	"github.com/mylxsw/redis-tui/config"
 	"github.com/mylxsw/redis-tui/core"
 	"github.com/rivo/tview"
-	"strings"
-	"time"
 )
 
 type primitiveKey struct {
@@ -59,22 +60,27 @@ type RedisTUI struct {
 
 	config      config.Config
 	keyBindings core.KeyBindings
+
+	searchKeyHistories  []string
+	commandKeyHistories []string
 }
 
 // NewRedisTUI create a RedisTUI object
 func NewRedisTUI(redisClient api.RedisClient, maxKeyLimit int64, version string, gitCommit string, outputChan chan core.OutputMessage, conf config.Config) *RedisTUI {
 	tui := &RedisTUI{
-		redisClient:       redisClient,
-		maxKeyLimit:       maxKeyLimit,
-		maxCharacterLimit: maxKeyLimit * 20,
-		version:           version,
-		gitCommit:         gitCommit,
-		focusPrimitives:   make([]primitiveKey, 0),
-		currentFocusIndex: 0,
-		outputChan:        outputChan,
-		config:            conf,
-		keyBindings:       core.NewKeyBinding(),
-		uiViewUpdateChan:  make(chan func()),
+		redisClient:         redisClient,
+		maxKeyLimit:         maxKeyLimit,
+		maxCharacterLimit:   maxKeyLimit * 20,
+		version:             version,
+		gitCommit:           gitCommit,
+		focusPrimitives:     make([]primitiveKey, 0),
+		currentFocusIndex:   0,
+		outputChan:          outputChan,
+		config:              conf,
+		keyBindings:         core.NewKeyBinding(),
+		uiViewUpdateChan:    make(chan func()),
+		searchKeyHistories:  make([]string, 0),
+		commandKeyHistories: make([]string, 0),
 	}
 
 	tui.welcomeScreen = tview.NewTextView().SetTitle("Hello, world!")
@@ -289,6 +295,36 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 
 	commandInputField := tview.NewInputField().SetLabel("Command ")
 
+	var currentIndex = -1
+	commandInputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyUp:
+			if len(tui.commandKeyHistories) == 0 {
+				break
+			}
+
+			currentIndex = currentIndex - 1
+			if currentIndex < 0 {
+				currentIndex = len(tui.commandKeyHistories) - 1
+			}
+
+			commandInputField.SetText(tui.commandKeyHistories[currentIndex])
+		case tcell.KeyDown:
+			if len(tui.commandKeyHistories) == 0 {
+				break
+			}
+
+			currentIndex = currentIndex + 1
+			if currentIndex > len(tui.commandKeyHistories)-1 {
+				currentIndex = 0
+			}
+
+			commandInputField.SetText(tui.commandKeyHistories[currentIndex])
+		}
+
+		return event
+	})
+
 	locked := make(chan interface{}, 1)
 	locked <- struct{}{}
 	commandInputField.SetDoneFunc(func(key tcell.Key) {
@@ -362,6 +398,17 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 		}(cmdText)
 
 		commandInputField.SetText("")
+		currentIndex = 0
+		if cmdText != "" {
+			if len(tui.commandKeyHistories) > 0 {
+				lastHis := tui.commandKeyHistories[len(tui.commandKeyHistories)-1]
+				if lastHis != cmdText {
+					tui.commandKeyHistories = append(tui.commandKeyHistories, cmdText)
+				}
+			} else {
+				tui.commandKeyHistories = append(tui.commandKeyHistories, cmdText)
+			}
+		}
 	}).SetChangedFunc(func(text string) {
 		if text == "" {
 			commandTipView.Clear()
@@ -408,12 +455,56 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 
 // createSearchPanel create search panel
 func (tui *RedisTUI) createSearchPanel() *tview.InputField {
-	searchArea := tview.NewInputField().SetLabel(" KeyID ")
+	searchArea := tview.NewInputField().SetLabel(" Key ")
+	var currentIndex = -1
+	searchArea.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyUp:
+			if len(tui.searchKeyHistories) == 0 {
+				break
+			}
+
+			currentIndex = currentIndex - 1
+			if currentIndex < 0 {
+				currentIndex = len(tui.searchKeyHistories) - 1
+			}
+
+			searchArea.SetText(tui.searchKeyHistories[currentIndex])
+		case tcell.KeyDown:
+			if len(tui.searchKeyHistories) == 0 {
+				break
+			}
+
+			currentIndex = currentIndex + 1
+			if currentIndex > len(tui.searchKeyHistories)-1 {
+				currentIndex = 0
+			}
+
+			searchArea.SetText(tui.searchKeyHistories[currentIndex])
+		}
+
+		return event
+	})
 	searchArea.SetDoneFunc(func(key tcell.Key) {
 		if key != tcell.KeyEnter {
 			return
 		}
 		var text = searchArea.GetText()
+
+		tui.keyItemsPanel.Clear()
+		searchArea.SetText("")
+
+		currentIndex = 0
+		if text != "" {
+			if len(tui.searchKeyHistories) > 0 {
+				lastHis := tui.searchKeyHistories[len(tui.searchKeyHistories)-1]
+				if lastHis != text {
+					tui.searchKeyHistories = append(tui.searchKeyHistories, text)
+				}
+			} else {
+				tui.searchKeyHistories = append(tui.searchKeyHistories, text)
+			}
+		}
 
 		var keys []string
 		var err error
@@ -428,8 +519,6 @@ func (tui *RedisTUI) createSearchPanel() *tview.InputField {
 			tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 			return
 		}
-
-		tui.keyItemsPanel.Clear()
 
 		tui.summaryPanel.SetText(fmt.Sprintf(" Total matched: %d", len(keys)))
 		for i, k := range keys {
