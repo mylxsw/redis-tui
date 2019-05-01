@@ -11,3 +11,8 @@ A Redis Text-based UI client in CLI.
 - [ ] Command auto-completion function when executing commands
 - [x] Command execution history function, you can quickly switch the previous command by pressing the up and down buttons
 - [ ] The return value of the `SCAN` command is not formatted correctly
+
+
+## Stargazers over time
+
+[![Stargazers over time](https://starchart.cc/mylxsw/redis-tui.svg)](https://starchart.cc/mylxsw/redis-tui)
