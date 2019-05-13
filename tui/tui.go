@@ -190,8 +190,13 @@ func (tui *RedisTUI) Start() error {
 			select {
 			case out := <-tui.outputChan:
 				tui.uiViewUpdateChan <- func() {
+					// clear outputPanel to avoid to many message caused ui hangup
+					if tui.outputPanel.GetItemCount() > 20 {
+						tui.outputPanel.Clear()
+					}
+
 					// tui.outputPanel.SetTextColor(out.Color).SetText(fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), out.Message))
-					tui.outputPanel.AddItem(fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), out.Message), "", 0, nil)
+					tui.outputPanel.AddItem(fmt.Sprintf("%d | [%s] %s", tui.outputPanel.GetItemCount(), time.Now().Format(time.RFC3339), out.Message), "", 0, nil)
 					tui.outputPanel.SetCurrentItem(-1)
 				}
 			case <-ticker.C:

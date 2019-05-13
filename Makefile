@@ -17,5 +17,5 @@ release:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags $(LDFLAGS) -o release/redis-tui-linux *.go
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm go build -ldflags $(LDFLAGS) -o release/redis-tui-linux-arm *.go
 
-.PHONY: run build release
+.PHONY: run-dev run build release
 

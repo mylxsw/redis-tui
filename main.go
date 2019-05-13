@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+
 	"github.com/mylxsw/redis-tui/api"
 	"github.com/mylxsw/redis-tui/config"
 	"github.com/mylxsw/redis-tui/core"
@@ -37,7 +38,7 @@ func main() {
 		return
 	}
 
-	outputChan := make(chan core.OutputMessage)
+	outputChan := make(chan core.OutputMessage, 100)
 	if err := tui.NewRedisTUI(api.NewRedisClient(conf, outputChan), 100, Version, GitCommit, outputChan, conf).Start(); err != nil {
 		panic(err)
 	}
