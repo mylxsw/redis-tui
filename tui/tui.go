@@ -115,7 +115,11 @@ func NewRedisTUI(redisClient api.RedisClient, maxKeyLimit int, version string, g
 	ui.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 
 		if ui.config.Debug {
-			ui.outputChan <- core.OutputMessage{Message: fmt.Sprintf("Key %s pressed", tcell.KeyNames[event.Key()])}
+			keyName := event.Name()
+			if event.Key() == tcell.KeyRune {
+				keyName = string(event.Rune())
+			}
+			ui.outputChan <- core.OutputMessage{Message: fmt.Sprintf("Key %s pressed", keyName)}
 		}
 
 		name := ui.keyBindings.SearchKey(event.Key())
