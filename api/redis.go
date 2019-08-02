@@ -2,10 +2,12 @@ package api
 
 import (
 	"fmt"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/mylxsw/redis-tui/config"
 	"github.com/mylxsw/redis-tui/core"
-	"strings"
-	"time"
 
 	"github.com/gdamore/tcell"
 	"github.com/go-redis/redis"
@@ -70,6 +72,63 @@ func RedisExecute(client RedisClient, command string) (interface{}, error) {
 	}
 
 	return client.Do(args...).Result()
+}
+
+var redisKeys = make([]string, 0)
+var redisKeysLastUpdate time.Time
+var redisLock sync.RWMutex
+
+func RedisKeys(client RedisClient, pattern string) ([]string, error) {
+	keys, err := KeysWithLimit(client, pattern, -1)
+	if err != nil {
+		return nil, nil
+	}
+
+	return keys, nil
+}
+
+func RedisAllKeys(client RedisClient, cache bool) ([]string, error) {
+	redisLock.RLock()
+	if cache && redisKeysLastUpdate.After(time.Now().Add(60*time.Second)) {
+		redisLock.RUnlock()
+		return redisKeys, nil
+	}
+	redisLock.RUnlock()
+
+	redisLock.Lock()
+	defer redisLock.Unlock()
+
+	keys, err := KeysWithLimit(client, "*", 10)
+	if err != nil {
+		return nil, err
+	}
+
+	redisKeys = keys
+	redisKeysLastUpdate = time.Now()
+
+	return keys, nil
+}
+
+func KeysWithLimit(client RedisClient, key string, maxScanCount int) (redisKeys []string, err error) {
+	var cursor uint64 = 0
+	var keys []string
+
+	var scanCount = 0
+	for scanCount < maxScanCount || maxScanCount == -1{
+		scanCount++
+
+		keys, cursor, err = client.Scan(cursor, key, 100).Result()
+		if err != nil {
+			return
+		}
+
+		redisKeys = append(redisKeys, keys...)
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return
 }
 
 func RedisServerInfo(conf config.Config, client RedisClient) (string, error) {

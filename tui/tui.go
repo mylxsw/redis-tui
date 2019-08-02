@@ -49,8 +49,8 @@ type RedisTUI struct {
 
 	itemSelectedHandler func(index int, key string) func()
 
-	maxKeyLimit       int64
-	maxCharacterLimit int64
+	maxKeyLimit       int
+	maxCharacterLimit int
 
 	version   string
 	gitCommit string
@@ -66,8 +66,8 @@ type RedisTUI struct {
 }
 
 // NewRedisTUI create a RedisTUI object
-func NewRedisTUI(redisClient api.RedisClient, maxKeyLimit int64, version string, gitCommit string, outputChan chan core.OutputMessage, conf config.Config) *RedisTUI {
-	tui := &RedisTUI{
+func NewRedisTUI(redisClient api.RedisClient, maxKeyLimit int, version string, gitCommit string, outputChan chan core.OutputMessage, conf config.Config) *RedisTUI {
+	ui := &RedisTUI{
 		redisClient:         redisClient,
 		maxKeyLimit:         maxKeyLimit,
 		maxCharacterLimit:   maxKeyLimit * 20,
@@ -83,78 +83,78 @@ func NewRedisTUI(redisClient api.RedisClient, maxKeyLimit int64, version string,
 		commandKeyHistories: make([]string, 0),
 	}
 
-	tui.welcomeScreen = tview.NewTextView().SetTitle("Hello, world!")
+	ui.welcomeScreen = tview.NewTextView().SetTitle("Hello, world!")
 
-	tui.metaPanel = tui.createMetaPanel()
-	tui.mainPanel = tui.createMainPanel()
-	tui.outputPanel = tui.createOutputPanel()
-	tui.summaryPanel = tui.createSummaryPanel()
-	tui.keyItemsPanel = tui.createKeyItemsPanel()
-	tui.itemSelectedHandler = tui.createKeySelectedHandler()
-	tui.searchPanel = tui.createSearchPanel()
-	tui.helpPanel = tui.createHelpPanel()
+	ui.metaPanel = ui.createMetaPanel()
+	ui.mainPanel = ui.createMainPanel()
+	ui.outputPanel = ui.createOutputPanel()
+	ui.summaryPanel = ui.createSummaryPanel()
+	ui.keyItemsPanel = ui.createKeyItemsPanel()
+	ui.itemSelectedHandler = ui.createKeySelectedHandler()
+	ui.searchPanel = ui.createSearchPanel()
+	ui.helpPanel = ui.createHelpPanel()
 
-	tui.commandPanel = tui.createCommandPanel()
+	ui.commandPanel = ui.createCommandPanel()
 
-	tui.leftPanel = tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(tui.searchPanel, 3, 0, false).
-		AddItem(tui.keyItemsPanel, 0, 1, false).
-		AddItem(tui.summaryPanel, 3, 1, false)
+	ui.leftPanel = tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(ui.searchPanel, 3, 0, false).
+		AddItem(ui.keyItemsPanel, 0, 1, false).
+		AddItem(ui.summaryPanel, 3, 1, false)
 
-	tui.rightPanel = tview.NewFlex().SetDirection(tview.FlexRow)
-	tui.redrawRightPanel(tui.mainPanel)
+	ui.rightPanel = tview.NewFlex().SetDirection(tview.FlexRow)
+	ui.redrawRightPanel(ui.mainPanel)
 
-	tui.app = tview.NewApplication()
-	tui.layout = tview.NewFlex().
-		AddItem(tui.leftPanel, 0, 3, false).
-		AddItem(tui.rightPanel, 0, 8, false)
+	ui.app = tview.NewApplication()
+	ui.layout = tview.NewFlex().
+		AddItem(ui.leftPanel, 0, 3, false).
+		AddItem(ui.rightPanel, 0, 8, false)
 
-	tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: tui.searchPanel, Key: tui.keyBindings.KeyID("search")})
-	tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: tui.keyItemsPanel, Key: tui.keyBindings.KeyID("keys")})
+	ui.focusPrimitives = append(ui.focusPrimitives, primitiveKey{Primitive: ui.searchPanel, Key: ui.keyBindings.KeyID("search")})
+	ui.focusPrimitives = append(ui.focusPrimitives, primitiveKey{Primitive: ui.keyItemsPanel, Key: ui.keyBindings.KeyID("keys")})
 
-	tui.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+	ui.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 
-		if tui.config.Debug {
-			tui.outputChan <- core.OutputMessage{Message: fmt.Sprintf("Key %s pressed", tcell.KeyNames[event.Key()])}
+		if ui.config.Debug {
+			ui.outputChan <- core.OutputMessage{Message: fmt.Sprintf("Key %s pressed", tcell.KeyNames[event.Key()])}
 		}
 
-		name := tui.keyBindings.SearchKey(event.Key())
+		name := ui.keyBindings.SearchKey(event.Key())
 		switch name {
 		case "switch_focus":
-			nextFocusIndex := tui.currentFocusIndex + 1
-			if nextFocusIndex > len(tui.focusPrimitives)-1 {
+			nextFocusIndex := ui.currentFocusIndex + 1
+			if nextFocusIndex > len(ui.focusPrimitives)-1 {
 				nextFocusIndex = 0
 			}
 
-			tui.app.SetFocus(tui.focusPrimitives[nextFocusIndex].Primitive)
-			tui.currentFocusIndex = nextFocusIndex
+			ui.app.SetFocus(ui.focusPrimitives[nextFocusIndex].Primitive)
+			ui.currentFocusIndex = nextFocusIndex
 
 			return nil
 		case "quit":
-			tui.app.Stop()
+			ui.app.Stop()
 		case "command":
-			if tui.commandMode {
-				tui.commandMode = false
-				tui.redrawRightPanel(tui.mainPanel)
-				tui.app.SetFocus(tui.searchPanel)
-				tui.currentFocusIndex = 0
+			if ui.commandMode {
+				ui.commandMode = false
+				ui.redrawRightPanel(ui.mainPanel)
+				ui.app.SetFocus(ui.searchPanel)
+				ui.currentFocusIndex = 0
 			} else {
-				tui.commandMode = true
-				tui.redrawRightPanel(tui.commandPanel)
+				ui.commandMode = true
+				ui.redrawRightPanel(ui.commandPanel)
 
-				for i, p := range tui.focusPrimitives {
-					if p.Primitive == tui.commandInputField {
-						tui.app.SetFocus(tui.commandInputField)
-						tui.currentFocusIndex = i
+				for i, p := range ui.focusPrimitives {
+					if p.Primitive == ui.commandInputField {
+						ui.app.SetFocus(ui.commandInputField)
+						ui.currentFocusIndex = i
 						break
 					}
 				}
 			}
 		default:
-			for i, pv := range tui.focusPrimitives {
+			for i, pv := range ui.focusPrimitives {
 				if pv.Key == name {
-					tui.app.SetFocus(pv.Primitive)
-					tui.currentFocusIndex = i
+					ui.app.SetFocus(pv.Primitive)
+					ui.currentFocusIndex = i
 					break
 				}
 			}
@@ -163,82 +163,83 @@ func NewRedisTUI(redisClient api.RedisClient, maxKeyLimit int64, version string,
 		return event
 	})
 
-	return tui
+	return ui
 }
 
 // Start create the ui and start the program
-func (tui *RedisTUI) Start() error {
+func (ui *RedisTUI) Start() error {
 	go func() {
 		for {
 			select {
-			case f := <-tui.uiViewUpdateChan:
+			case f := <-ui.uiViewUpdateChan:
 				(func() {
 					defer func() {
 						if err := recover(); err != nil {
 						}
 					}()
-					tui.app.QueueUpdateDraw(f)
+					ui.app.QueueUpdateDraw(f)
 				})()
 			}
 		}
 	}()
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 
 		for {
 			select {
-			case out := <-tui.outputChan:
-				tui.uiViewUpdateChan <- func() {
+			case out := <-ui.outputChan:
+				ui.uiViewUpdateChan <- func() {
 					// clear outputPanel to avoid to many message caused ui hangup
-					if tui.outputPanel.GetItemCount() > 20 {
-						tui.outputPanel.Clear()
+					if ui.outputPanel.GetItemCount() > 20 {
+						ui.outputPanel.Clear()
 					}
 
-					// tui.outputPanel.SetTextColor(out.Color).SetText(fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), out.Message))
-					tui.outputPanel.AddItem(fmt.Sprintf("%d | [%s] %s", tui.outputPanel.GetItemCount(), time.Now().Format(time.RFC3339), out.Message), "", 0, nil)
-					tui.outputPanel.SetCurrentItem(-1)
+					// ui.outputPanel.SetTextColor(out.Color).SetText(fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), out.Message))
+					ui.outputPanel.AddItem(fmt.Sprintf("%d | [%s] %s", ui.outputPanel.GetItemCount(), time.Now().Format(time.RFC3339), out.Message), "", 0, nil)
+					ui.outputPanel.SetCurrentItem(-1)
 				}
 			case <-ticker.C:
-				info, err := api.RedisServerInfo(tui.config, tui.redisClient)
+				// update server info
+				info, err := api.RedisServerInfo(ui.config, ui.redisClient)
 				if err != nil {
-					tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+					ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 				}
 
-				tui.uiViewUpdateChan <- func() {
-					tui.helpServerInfoPanel.SetText(info)
+				ui.uiViewUpdateChan <- func() {
+					ui.helpServerInfoPanel.SetText(info)
 				}
 			}
 		}
 	}()
 
 	go func() {
-		info, err := api.RedisServerInfo(tui.config, tui.redisClient)
+		info, err := api.RedisServerInfo(ui.config, ui.redisClient)
 		if err != nil {
-			tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+			ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 		}
-		tui.app.QueueUpdateDraw(func() {
-			tui.helpServerInfoPanel.SetText(info)
+		ui.app.QueueUpdateDraw(func() {
+			ui.helpServerInfoPanel.SetText(info)
 		})
 
-		keys, _, err := tui.redisClient.Scan(0, "*", tui.maxKeyLimit).Result()
+		keys, err := api.RedisAllKeys(ui.redisClient, false)
 		if err != nil {
-			tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+			ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 			return
 		}
-		tui.app.QueueUpdateDraw(func() {
-			tui.summaryPanel.SetText(fmt.Sprintf(" Total matched: %d", len(keys)))
+		ui.app.QueueUpdateDraw(func() {
+			ui.summaryPanel.SetText(fmt.Sprintf(" Total matched: %d", len(keys)))
 
-			for i, k := range keys {
-				tui.keyItemsPanel.AddItem(tui.keyItemsFormat(i, k), "", 0, tui.itemSelectedHandler(i, k))
+			for i, k := range limit(keys, ui.maxKeyLimit) {
+				ui.keyItemsPanel.AddItem(ui.keyItemsFormat(i, k), "", 0, ui.itemSelectedHandler(i, k))
 			}
 
-			tui.app.SetFocus(tui.keyItemsPanel)
+			ui.app.SetFocus(ui.keyItemsPanel)
 		})
 	}()
 
-	tui.pages = tview.NewPages()
-	tui.pages.AddPage("base", tui.layout, true, true)
+	ui.pages = tview.NewPages()
+	ui.pages.AddPage("base", ui.layout, true, true)
 	// welcomeScreen := tview.NewInputField().SetDrawFunc(func(screen tcell.Screen, x, y, width, height int) (i int, i2 int, i3 int, i4 int) {
 	// 	// Draw a horizontal line across the middle of the box.
 	// 	centerY := y + height/2
@@ -253,49 +254,49 @@ func (tui *RedisTUI) Start() error {
 	// 	return x + 1, centerY + 1, width - 2, height - (centerY + 1 - y)
 	// })
 	//
-	// tui.pages.AddPage("welcome_screen", welcomeScreen, true, true)
+	// ui.pages.AddPage("welcome_screen", welcomeScreen, true, true)
 	//
 	// go func() {
 	// 	time.Sleep(2 * time.Second)
-	// 	tui.app.QueueUpdateDraw(func() {
-	// 		tui.pages.RemovePage("welcome_screen")
+	// 	ui.app.QueueUpdateDraw(func() {
+	// 		ui.pages.RemovePage("welcome_screen")
 	// 	})
 	// }()
 
-	return tui.app.SetRoot(tui.pages, true).Run()
+	return ui.app.SetRoot(ui.pages, true).Run()
 }
 
-func (tui *RedisTUI) redrawRightPanel(center tview.Primitive) {
-	tui.rightPanel.RemoveItem(tui.metaPanel).
-		RemoveItem(tui.outputPanel).
-		RemoveItem(tui.mainPanel).
-		RemoveItem(tui.commandPanel).
-		RemoveItem(tui.helpPanel)
+func (ui *RedisTUI) redrawRightPanel(center tview.Primitive) {
+	ui.rightPanel.RemoveItem(ui.metaPanel).
+		RemoveItem(ui.outputPanel).
+		RemoveItem(ui.mainPanel).
+		RemoveItem(ui.commandPanel).
+		RemoveItem(ui.helpPanel)
 
-	tui.rightPanel.AddItem(tui.helpPanel, 5, 1, false).
-		AddItem(tui.metaPanel, 4, 1, false).
+	ui.rightPanel.AddItem(ui.helpPanel, 5, 1, false).
+		AddItem(ui.metaPanel, 4, 1, false).
 		AddItem(center, 0, 7, false).
-		AddItem(tui.outputPanel, 8, 1, false)
+		AddItem(ui.outputPanel, 8, 1, false)
 }
 
-func (tui *RedisTUI) createSummaryPanel() *tview.TextView {
+func (ui *RedisTUI) createSummaryPanel() *tview.TextView {
 	panel := tview.NewTextView()
 	panel.SetBorder(true).SetTitle(" Info ")
 	return panel
 }
 
-func (tui *RedisTUI) keyItemsFormat(index int, key string) string {
+func (ui *RedisTUI) keyItemsFormat(index int, key string) string {
 	return fmt.Sprintf("%3d | %s", index+1, key)
 }
 
-func (tui *RedisTUI) createCommandPanel() *tview.Flex {
+func (ui *RedisTUI) createCommandPanel() *tview.Flex {
 	flex := tview.NewFlex().SetDirection(tview.FlexRow)
 
 	resultPanel := tview.NewTextView()
-	resultPanel.SetBorder(true).SetTitle(fmt.Sprintf(" Results (%s) ", tui.keyBindings.Name("command_result")))
+	resultPanel.SetBorder(true).SetTitle(fmt.Sprintf(" Results (%s) ", ui.keyBindings.Name("command_result")))
 
 	formPanel := tview.NewFlex().SetDirection(tview.FlexRow)
-	formPanel.SetBorder(true).SetTitle(fmt.Sprintf(" Commands (%s) ", tui.keyBindings.Name("command_focus")))
+	formPanel.SetBorder(true).SetTitle(fmt.Sprintf(" Commands (%s) ", ui.keyBindings.Name("command_focus")))
 	commandTipView := tview.NewTextView().SetDynamicColors(true).SetRegions(true)
 
 	commandInputField := tview.NewInputField().SetLabel("Command ")
@@ -304,30 +305,44 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 	commandInputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyUp:
-			if len(tui.commandKeyHistories) == 0 {
+			if len(ui.commandKeyHistories) == 0 {
 				break
 			}
 
 			currentIndex = currentIndex - 1
 			if currentIndex < 0 {
-				currentIndex = len(tui.commandKeyHistories) - 1
+				currentIndex = len(ui.commandKeyHistories) - 1
 			}
 
-			commandInputField.SetText(tui.commandKeyHistories[currentIndex])
+			commandInputField.SetText(ui.commandKeyHistories[currentIndex])
 		case tcell.KeyDown:
-			if len(tui.commandKeyHistories) == 0 {
+			if len(ui.commandKeyHistories) == 0 {
 				break
 			}
 
 			currentIndex = currentIndex + 1
-			if currentIndex > len(tui.commandKeyHistories)-1 {
+			if currentIndex > len(ui.commandKeyHistories)-1 {
 				currentIndex = 0
 			}
 
-			commandInputField.SetText(tui.commandKeyHistories[currentIndex])
+			commandInputField.SetText(ui.commandKeyHistories[currentIndex])
 		}
 
 		return event
+	})
+
+	commandInputField.SetAutocompleteFunc(func(currentText string) (entries []string) {
+		currentText = strings.ToLower(strings.TrimSpace(currentText))
+		if currentText == "" || len(strings.Split(currentText, " ")) > 2 {
+			return
+		}
+
+		cmds := api.RedisMatchedCommands(currentText)
+		for _, c := range cmds {
+			entries = append(entries, c.Command)
+		}
+
+		return entries
 	})
 
 	locked := make(chan interface{}, 1)
@@ -338,14 +353,14 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 
 		default:
 			pageID := "alert"
-			tui.pages.AddPage(
+			ui.pages.AddPage(
 				pageID,
 				tview.NewModal().
 					SetText("Other command is processing, please wait...").
 					AddButtons([]string{"OK"}).
 					SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-						tui.pages.HidePage(pageID).RemovePage(pageID)
-						tui.app.SetFocus(commandInputField)
+						ui.pages.HidePage(pageID).RemovePage(pageID)
+						ui.app.SetFocus(commandInputField)
 					}),
 				false,
 				true,
@@ -355,15 +370,15 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 		}
 
 		cmdText := commandInputField.GetText()
-		tui.outputChan <- core.OutputMessage{Color: tcell.ColorOrange, Message: fmt.Sprintf("Command %s is processing...", cmdText)}
+		ui.outputChan <- core.OutputMessage{Color: tcell.ColorOrange, Message: fmt.Sprintf("Command %s is processing...", cmdText)}
 
 		go func(cmdText string) {
 			defer func() {
 				locked <- struct{}{}
 			}()
-			res, err := api.RedisExecute(tui.redisClient, cmdText)
+			res, err := api.RedisExecute(ui.redisClient, cmdText)
 			if err != nil {
-				tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+				ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 				return
 			}
 
@@ -385,8 +400,8 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 			}
 
 			// If the output content is too long, the interface will be suspended for a long time
-			if len(output) > int(tui.maxCharacterLimit) {
-				output = output[:tui.maxCharacterLimit] + fmt.Sprintf("\n\n ~ %d+ charactors omitted ~", len(output)-int(tui.maxCharacterLimit))
+			if len(output) > int(ui.maxCharacterLimit) {
+				output = output[:ui.maxCharacterLimit] + fmt.Sprintf("\n\n ~ %d+ charactors omitted ~", len(output)-int(ui.maxCharacterLimit))
 			}
 
 			outputSlices := strings.Split(output, "\n")
@@ -396,8 +411,8 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 
 			output = strings.Join(outputSlices, "\n")
 
-			tui.outputChan <- core.OutputMessage{Color: tcell.ColorGreen, Message: fmt.Sprintf("Command %s succeed", cmdText)}
-			tui.uiViewUpdateChan <- func() {
+			ui.outputChan <- core.OutputMessage{Color: tcell.ColorGreen, Message: fmt.Sprintf("Command %s succeed", cmdText)}
+			ui.uiViewUpdateChan <- func() {
 				resultPanel.SetText(output)
 			}
 		}(cmdText)
@@ -405,13 +420,13 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 		commandInputField.SetText("")
 		currentIndex = 0
 		if cmdText != "" {
-			if len(tui.commandKeyHistories) > 0 {
-				lastHis := tui.commandKeyHistories[len(tui.commandKeyHistories)-1]
+			if len(ui.commandKeyHistories) > 0 {
+				lastHis := ui.commandKeyHistories[len(ui.commandKeyHistories)-1]
 				if lastHis != cmdText {
-					tui.commandKeyHistories = append(tui.commandKeyHistories, cmdText)
+					ui.commandKeyHistories = append(ui.commandKeyHistories, cmdText)
 				}
 			} else {
-				tui.commandKeyHistories = append(tui.commandKeyHistories, cmdText)
+				ui.commandKeyHistories = append(ui.commandKeyHistories, cmdText)
 			}
 		}
 	}).SetChangedFunc(func(text string) {
@@ -443,14 +458,14 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 		}
 	})
 
-	tui.commandInputField = commandInputField
-	tui.commandResultPanel = resultPanel
+	ui.commandInputField = commandInputField
+	ui.commandResultPanel = resultPanel
 
 	formPanel.AddItem(commandInputField, 1, 1, false).
 		AddItem(commandTipView, 4, 4, false)
 
-	tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: tui.commandInputField, Key: tui.keyBindings.KeyID("command_focus")})
-	tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: tui.commandResultPanel, Key: tui.keyBindings.KeyID("command_result")})
+	ui.focusPrimitives = append(ui.focusPrimitives, primitiveKey{Primitive: ui.commandInputField, Key: ui.keyBindings.KeyID("command_focus")})
+	ui.focusPrimitives = append(ui.focusPrimitives, primitiveKey{Primitive: ui.commandResultPanel, Key: ui.keyBindings.KeyID("command_result")})
 
 	flex.AddItem(formPanel, 7, 0, false).
 		AddItem(resultPanel, 0, 1, false)
@@ -459,33 +474,33 @@ func (tui *RedisTUI) createCommandPanel() *tview.Flex {
 }
 
 // createSearchPanel create search panel
-func (tui *RedisTUI) createSearchPanel() *tview.InputField {
+func (ui *RedisTUI) createSearchPanel() *tview.InputField {
 	searchArea := tview.NewInputField().SetLabel(" Key ")
 	var currentIndex = -1
 	searchArea.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyUp:
-			if len(tui.searchKeyHistories) == 0 {
+			if len(ui.searchKeyHistories) == 0 {
 				break
 			}
 
 			currentIndex = currentIndex - 1
 			if currentIndex < 0 {
-				currentIndex = len(tui.searchKeyHistories) - 1
+				currentIndex = len(ui.searchKeyHistories) - 1
 			}
 
-			searchArea.SetText(tui.searchKeyHistories[currentIndex])
+			searchArea.SetText(ui.searchKeyHistories[currentIndex])
 		case tcell.KeyDown:
-			if len(tui.searchKeyHistories) == 0 {
+			if len(ui.searchKeyHistories) == 0 {
 				break
 			}
 
 			currentIndex = currentIndex + 1
-			if currentIndex > len(tui.searchKeyHistories)-1 {
+			if currentIndex > len(ui.searchKeyHistories)-1 {
 				currentIndex = 0
 			}
 
-			searchArea.SetText(tui.searchKeyHistories[currentIndex])
+			searchArea.SetText(ui.searchKeyHistories[currentIndex])
 		}
 
 		return event
@@ -496,56 +511,83 @@ func (tui *RedisTUI) createSearchPanel() *tview.InputField {
 		}
 		var text = searchArea.GetText()
 
-		tui.keyItemsPanel.Clear()
+		ui.keyItemsPanel.Clear()
 		searchArea.SetText("")
 
 		currentIndex = 0
 		if text != "" {
-			if len(tui.searchKeyHistories) > 0 {
-				lastHis := tui.searchKeyHistories[len(tui.searchKeyHistories)-1]
+			if len(ui.searchKeyHistories) > 0 {
+				lastHis := ui.searchKeyHistories[len(ui.searchKeyHistories)-1]
 				if lastHis != text {
-					tui.searchKeyHistories = append(tui.searchKeyHistories, text)
+					ui.searchKeyHistories = append(ui.searchKeyHistories, text)
 				}
 			} else {
-				tui.searchKeyHistories = append(tui.searchKeyHistories, text)
+				ui.searchKeyHistories = append(ui.searchKeyHistories, text)
 			}
 		}
 
 		var keys []string
 		var err error
 
-		if text == "" || text == "*" {
-			keys, _, err = tui.redisClient.Scan(0, text, tui.maxKeyLimit).Result()
-		} else {
-			keys, err = tui.redisClient.Keys(text).Result()
-		}
+		// if text == "" || text == "*" {
+		// 	keys, _, err = ui.redisClient.Scan(0, text, ui.maxKeyLimit).Result()
+		// } else {
+		// 	keys, err = ui.redisClient.Keys(text).Result()
+		// }
+		keys, err = api.RedisKeys(ui.redisClient, text)
 
 		if err != nil {
-			tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+			ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 			return
 		}
 
-		tui.summaryPanel.SetText(fmt.Sprintf(" Total matched: %d", len(keys)))
+		ui.summaryPanel.SetText(fmt.Sprintf(" Total matched: %d", len(keys)))
 		for i, k := range keys {
-			if i > int(tui.maxKeyLimit) {
+			if i > int(ui.maxKeyLimit) {
 				break
 			}
-			tui.keyItemsPanel.AddItem(tui.keyItemsFormat(i, k), "", 0, tui.itemSelectedHandler(i, k))
+			ui.keyItemsPanel.AddItem(ui.keyItemsFormat(i, k), "", 0, ui.itemSelectedHandler(i, k))
 		}
 	})
-	searchArea.SetBorder(true).SetTitle(fmt.Sprintf(" Search (%s) ", tui.keyBindings.Name("search")))
+	searchArea.SetAutocompleteFunc(func(currentText string) (entries []string) {
+		currentText = strings.TrimSpace(currentText)
+		if len(currentText) == 0 {
+			return
+		}
+
+		keys, err := api.KeysWithLimit(ui.redisClient, currentText+"*", 10)
+		if err != nil {
+			ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+			return
+		}
+
+		matchedCount := 0
+		for _, k := range keys {
+			if matchedCount >= 10 {
+				break
+			}
+
+			if strings.HasPrefix(k, currentText) {
+				entries = append(entries, k)
+				matchedCount++
+			}
+		}
+
+		return
+	})
+	searchArea.SetBorder(true).SetTitle(fmt.Sprintf(" Search (%s) ", ui.keyBindings.Name("search")))
 	return searchArea
 }
 
 // createKeyItemsPanel create key items panel
-func (tui *RedisTUI) createKeyItemsPanel() *tview.List {
+func (ui *RedisTUI) createKeyItemsPanel() *tview.List {
 	keyItemsList := tview.NewList().ShowSecondaryText(false)
-	keyItemsList.SetBorder(true).SetTitle(fmt.Sprintf(" Keys (%s) ", tui.keyBindings.Name("keys")))
+	keyItemsList.SetBorder(true).SetTitle(fmt.Sprintf(" Keys (%s) ", ui.keyBindings.Name("keys")))
 	return keyItemsList
 }
 
 // primitivesFilter is a filter for primitives
-func (tui *RedisTUI) primitivesFilter(items []primitiveKey, filter func(item primitiveKey) bool) []primitiveKey {
+func (ui *RedisTUI) primitivesFilter(items []primitiveKey, filter func(item primitiveKey) bool) []primitiveKey {
 	res := make([]primitiveKey, 0)
 	for _, item := range items {
 		if filter(item) {
@@ -557,7 +599,7 @@ func (tui *RedisTUI) primitivesFilter(items []primitiveKey, filter func(item pri
 }
 
 // createMetaPanel create a panel for meta info
-func (tui *RedisTUI) createMetaPanel() *tview.TextView {
+func (ui *RedisTUI) createMetaPanel() *tview.TextView {
 	metaInfoArea := tview.NewTextView().SetDynamicColors(true).SetRegions(true)
 	metaInfoArea.SetBorder(true).SetTitle(" Meta ")
 
@@ -565,104 +607,104 @@ func (tui *RedisTUI) createMetaPanel() *tview.TextView {
 }
 
 // createMainPanel create main panel
-func (tui *RedisTUI) createMainPanel() *tview.Flex {
+func (ui *RedisTUI) createMainPanel() *tview.Flex {
 	mainArea := tview.NewFlex()
 	mainArea.SetBorder(true).SetTitle(" Value ")
 
-	mainArea.AddItem(tui.welcomeScreen, 0, 1, false)
+	mainArea.AddItem(ui.welcomeScreen, 0, 1, false)
 
 	return mainArea
 }
 
 // createOutputPanel create a panel for outputFunc
-func (tui *RedisTUI) createOutputPanel() *tview.List {
+func (ui *RedisTUI) createOutputPanel() *tview.List {
 	outputArea := tview.NewList().ShowSecondaryText(false)
-	outputArea.SetBorder(true).SetTitle(fmt.Sprintf(" Output (%s) ", tui.keyBindings.Name("output")))
+	outputArea.SetBorder(true).SetTitle(fmt.Sprintf(" Output (%s) ", ui.keyBindings.Name("output")))
 
-	tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: outputArea, Key: tui.keyBindings.KeyID("output")})
+	ui.focusPrimitives = append(ui.focusPrimitives, primitiveKey{Primitive: outputArea, Key: ui.keyBindings.KeyID("output")})
 
 	return outputArea
 }
 
 // createHelpPanel create a panel for help message display
-func (tui *RedisTUI) createHelpPanel() *tview.Flex {
+func (ui *RedisTUI) createHelpPanel() *tview.Flex {
 	helpPanel := tview.NewFlex().SetDirection(tview.FlexRow)
-	helpPanel.SetBorder(true).SetTitle(fmt.Sprintf(" Version: %s (%s) ", tui.version, tui.gitCommit))
+	helpPanel.SetBorder(true).SetTitle(fmt.Sprintf(" Version: %s (%s) ", ui.version, ui.gitCommit))
 
-	tui.helpServerInfoPanel = tview.NewTextView().SetDynamicColors(true).SetRegions(true)
-	helpPanel.AddItem(tui.helpServerInfoPanel, 2, 1, false)
+	ui.helpServerInfoPanel = tview.NewTextView().SetDynamicColors(true).SetRegions(true)
+	helpPanel.AddItem(ui.helpServerInfoPanel, 2, 1, false)
 
-	tui.helpMessagePanel = tview.NewTextView()
-	tui.helpMessagePanel.SetTextColor(tcell.ColorOrange).SetText(fmt.Sprintf(
+	ui.helpMessagePanel = tview.NewTextView()
+	ui.helpMessagePanel.SetTextColor(tcell.ColorOrange).SetText(fmt.Sprintf(
 		" ❈ %s - open command panel, %s - switch focus, %s - quit",
-		tui.keyBindings.Name("command"),
-		tui.keyBindings.Name("switch_focus"),
-		tui.keyBindings.Name("quit"),
+		ui.keyBindings.Name("command"),
+		ui.keyBindings.Name("switch_focus"),
+		ui.keyBindings.Name("quit"),
 	))
 
-	helpPanel.AddItem(tui.helpMessagePanel, 1, 1, false)
+	helpPanel.AddItem(ui.helpMessagePanel, 1, 1, false)
 
 	return helpPanel
 }
 
 // createKeySelectedHandler create a handler for item selected event
-func (tui *RedisTUI) createKeySelectedHandler() func(index int, key string) func() {
+func (ui *RedisTUI) createKeySelectedHandler() func(index int, key string) func() {
 
 	// 用于KV展示的视图
 	mainStringView := tview.NewTextView()
-	mainStringView.SetBorder(true).SetTitle(fmt.Sprintf(" Value (%s) ", tui.keyBindings.Name("key_string_value")))
+	mainStringView.SetBorder(true).SetTitle(fmt.Sprintf(" Value (%s) ", ui.keyBindings.Name("key_string_value")))
 
 	mainHashView := tview.NewList().ShowSecondaryText(false)
-	mainHashView.SetBorder(true).SetTitle(fmt.Sprintf(" Hash KeyID (%s) ", tui.keyBindings.Name("key_hash")))
+	mainHashView.SetBorder(true).SetTitle(fmt.Sprintf(" Hash KeyID (%s) ", ui.keyBindings.Name("key_hash")))
 
 	mainListView := tview.NewList().ShowSecondaryText(false).SetSecondaryTextColor(tcell.ColorOrangeRed)
-	mainListView.SetBorder(true).SetTitle(fmt.Sprintf(" Value (%s) ", tui.keyBindings.Name("key_list_value")))
+	mainListView.SetBorder(true).SetTitle(fmt.Sprintf(" Value (%s) ", ui.keyBindings.Name("key_list_value")))
 
 	return func(index int, key string) func() {
 		return func() {
-			keyType, err := tui.redisClient.Type(key).Result()
+			keyType, err := ui.redisClient.Type(key).Result()
 			if err != nil {
-				tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+				ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 				return
 			}
 
-			ttl, err := tui.redisClient.TTL(key).Result()
+			ttl, err := ui.redisClient.TTL(key).Result()
 			if err != nil {
-				tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+				ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 				return
 			}
 
 			// 移除主区域的边框，因为展示区域已经带有边框了
-			tui.mainPanel.RemoveItem(tui.welcomeScreen).SetBorder(false)
+			ui.mainPanel.RemoveItem(ui.welcomeScreen).SetBorder(false)
 
 			// 重置展示视图
 			mainHashView.Clear()
 			mainStringView.Clear()
 			mainListView.Clear().ShowSecondaryText(false)
 
-			tui.focusPrimitives = tui.primitivesFilter(tui.focusPrimitives, func(item primitiveKey) bool {
+			ui.focusPrimitives = ui.primitivesFilter(ui.focusPrimitives, func(item primitiveKey) bool {
 				return item.Primitive != mainHashView && item.Primitive != mainListView && item.Primitive != mainStringView
 			})
 
-			tui.mainPanel.RemoveItem(mainStringView)
-			tui.mainPanel.RemoveItem(mainHashView)
-			tui.mainPanel.RemoveItem(mainListView)
+			ui.mainPanel.RemoveItem(mainStringView)
+			ui.mainPanel.RemoveItem(mainHashView)
+			ui.mainPanel.RemoveItem(mainListView)
 
 			// 根据不同的kv类型，展示不同的视图
 			switch keyType {
 			case "string":
-				result, err := tui.redisClient.Get(key).Result()
+				result, err := ui.redisClient.Get(key).Result()
 				if err != nil {
-					tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+					ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 					return
 				}
 
-				tui.mainPanel.AddItem(mainStringView.SetText(fmt.Sprintf(" %s", result)), 0, 1, false)
-				tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: mainStringView, Key: tui.keyBindings.KeyID("key_string_value")})
+				ui.mainPanel.AddItem(mainStringView.SetText(fmt.Sprintf(" %s", result)), 0, 1, false)
+				ui.focusPrimitives = append(ui.focusPrimitives, primitiveKey{Primitive: mainStringView, Key: ui.keyBindings.KeyID("key_string_value")})
 			case "list":
-				values, err := tui.redisClient.LRange(key, 0, 1000).Result()
+				values, err := ui.redisClient.LRange(key, 0, 1000).Result()
 				if err != nil {
-					tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+					ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 					return
 				}
 
@@ -670,13 +712,13 @@ func (tui *RedisTUI) createKeySelectedHandler() func(index int, key string) func
 					mainListView.AddItem(fmt.Sprintf(" %3d | %s", i+1, v), "", 0, nil)
 				}
 
-				tui.mainPanel.AddItem(mainListView, 0, 1, false)
-				tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: mainListView, Key: tui.keyBindings.KeyID("key_list_value")})
+				ui.mainPanel.AddItem(mainListView, 0, 1, false)
+				ui.focusPrimitives = append(ui.focusPrimitives, primitiveKey{Primitive: mainListView, Key: ui.keyBindings.KeyID("key_list_value")})
 
 			case "set":
-				values, err := tui.redisClient.SMembers(key).Result()
+				values, err := ui.redisClient.SMembers(key).Result()
 				if err != nil {
-					tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+					ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 					return
 				}
 
@@ -684,13 +726,13 @@ func (tui *RedisTUI) createKeySelectedHandler() func(index int, key string) func
 					mainListView.AddItem(fmt.Sprintf(" %3d | %s", i+1, v), "", 0, nil)
 				}
 
-				tui.mainPanel.AddItem(mainListView, 0, 1, false)
-				tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: mainListView, Key: tui.keyBindings.KeyID("key_list_value")})
+				ui.mainPanel.AddItem(mainListView, 0, 1, false)
+				ui.focusPrimitives = append(ui.focusPrimitives, primitiveKey{Primitive: mainListView, Key: ui.keyBindings.KeyID("key_list_value")})
 
 			case "zset":
-				values, err := tui.redisClient.ZRangeWithScores(key, 0, 1000).Result()
+				values, err := ui.redisClient.ZRangeWithScores(key, 0, 1000).Result()
 				if err != nil {
-					tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+					ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 					return
 				}
 
@@ -702,22 +744,22 @@ func (tui *RedisTUI) createKeySelectedHandler() func(index int, key string) func
 					mainListView.AddItem(val, score, 0, nil)
 				}
 
-				tui.mainPanel.AddItem(mainListView, 0, 1, false)
-				tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: mainListView, Key: tui.keyBindings.KeyID("key_list_value")})
+				ui.mainPanel.AddItem(mainListView, 0, 1, false)
+				ui.focusPrimitives = append(ui.focusPrimitives, primitiveKey{Primitive: mainListView, Key: ui.keyBindings.KeyID("key_list_value")})
 
 			case "hash":
-				hashKeys, err := tui.redisClient.HKeys(key).Result()
+				hashKeys, err := ui.redisClient.HKeys(key).Result()
 				if err != nil {
-					tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+					ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 					return
 				}
 
 				for i, k := range hashKeys {
 					mainHashView.AddItem(fmt.Sprintf(" %3d | %s", i+1, k), "", 0, (func(k string) func() {
 						return func() {
-							val, err := tui.redisClient.HGet(key, k).Result()
+							val, err := ui.redisClient.HGet(key, k).Result()
 							if err != nil {
-								tui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
+								ui.outputChan <- core.OutputMessage{Color: tcell.ColorRed, Message: fmt.Sprintf("errors: %s", err)}
 								return
 							}
 
@@ -726,14 +768,22 @@ func (tui *RedisTUI) createKeySelectedHandler() func(index int, key string) func
 					})(k))
 				}
 
-				tui.mainPanel.AddItem(mainHashView, 0, 3, false).
+				ui.mainPanel.AddItem(mainHashView, 0, 3, false).
 					AddItem(mainStringView, 0, 7, false)
 
-				tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: mainHashView, Key: tui.keyBindings.KeyID("key_hash")})
-				tui.focusPrimitives = append(tui.focusPrimitives, primitiveKey{Primitive: mainStringView, Key: tui.keyBindings.KeyID("key_string_value")})
+				ui.focusPrimitives = append(ui.focusPrimitives, primitiveKey{Primitive: mainHashView, Key: ui.keyBindings.KeyID("key_hash")})
+				ui.focusPrimitives = append(ui.focusPrimitives, primitiveKey{Primitive: mainStringView, Key: ui.keyBindings.KeyID("key_string_value")})
 			}
-			tui.outputChan <- core.OutputMessage{Color: tcell.ColorGreen, Message: fmt.Sprintf("query %s OK, type=%s, ttl=%s", key, keyType, ttl.String())}
-			tui.metaPanel.SetText(fmt.Sprintf("KeyID: %s\nType: %s, TTL: %s", key, keyType, ttl.String())).SetTextAlign(tview.AlignCenter)
+			ui.outputChan <- core.OutputMessage{Color: tcell.ColorGreen, Message: fmt.Sprintf("query %s OK, type=%s, ttl=%s", key, keyType, ttl.String())}
+			ui.metaPanel.SetText(fmt.Sprintf("KeyID: %s\nType: %s, TTL: %s", key, keyType, ttl.String())).SetTextAlign(tview.AlignCenter)
 		}
 	}
+}
+
+func limit(input []string, maxReturn int) []string {
+	if len(input) <= maxReturn {
+		return input
+	}
+
+	return input[:maxReturn]
 }
